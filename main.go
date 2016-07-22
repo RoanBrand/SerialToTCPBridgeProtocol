@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/RoanBrand/uartTCPBridgeSimple/protocol"
+	"github.com/RoanBrand/SerialToTCPBridgeProtocol/protocol"
 	"log"
 	"net"
 )
