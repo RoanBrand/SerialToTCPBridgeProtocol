@@ -1,17 +1,22 @@
 package protocol
 
 import (
-	"encoding/binary"
 	"fmt"
 	"github.com/tarm/serial"
 	"log"
 	"net"
-	"time"
+)
+
+const (
+	disconnected = iota
+	connected
 )
 
 type comHandler struct {
-	comPort *serial.Port
 	tcpLink net.Conn
+	comPort *serial.Port
+
+	state uint8
 
 	rxBuffer chan byte
 	txBuffer chan Packet
@@ -23,37 +28,40 @@ type comHandler struct {
 }
 
 func NewComHandler(ComName string, ComBaudrate int) (*comHandler, error) {
-	var newListener comHandler
+	newListener := comHandler{
+		state:             disconnected,
+		rxBuffer:          make(chan byte, 512),
+		txBuffer:          make(chan Packet, 2),
+		acknowledgeChan:   make(chan bool),
+		comSend:           make(chan Packet),
+		expectedRxSeqFlag: false,
+	}
+	var err error
 	config := &serial.Config{Name: ComName, Baud: ComBaudrate}
-
-	port, err := serial.OpenPort(config)
+	newListener.comPort, err = serial.OpenPort(config)
 	if err != nil {
 		return nil, err
 	}
-	newListener.tcpLink, err = net.Dial("tcp", "127.0.0.1:1883")
-	if err != nil {
-		return nil, err
-	}
-
-	newListener.comPort = port
-	newListener.expectedRxSeqFlag = false
-	newListener.rxBuffer = make(chan byte, 512)
-	newListener.txBuffer = make(chan Packet, 2)
-	newListener.acknowledgeChan = make(chan bool)
-	newListener.comSend = make(chan Packet)
-
-	go newListener.rxCOM()
-	go newListener.txCOM()
-	go newListener.packetReader()
-	go newListener.packetSender()
-	go newListener.tcpReader()
-
+	go newListener.waitForClient()
 	return &newListener, nil
 }
 
 func (com *comHandler) EndGracefully() {
 	com.tcpLink.Close()
 	com.comPort.Close()
+}
+
+// Wait for client to initiate connection
+func (com *comHandler) waitForClient() {
+	go com.rxCOM()
+	go com.packetReader()
+	log.Println("started waiting for connect packet")
+	for com.state != connected {
+	}
+
+	go com.txCOM()
+	go com.packetSender()
+	go com.tcpReader()
 }
 
 // Receive from Serial COM interface and send through buffered channel.
@@ -68,94 +76,6 @@ func (com *comHandler) rxCOM() {
 		for _, v := range rx[:nRx] {
 			com.rxBuffer <- v
 		}
-	}
-}
-
-// Parse receive buffered channel for legitimate packets.
-func (com *comHandler) packetReader() {
-	for {
-		p := Packet{}
-
-		// Length byte
-	WAIT_FOR_FIRST_BYTE:
-		for {
-			select {
-			case p.length = <-com.rxBuffer:
-				break WAIT_FOR_FIRST_BYTE
-			default:
-				// Loop until we get the first byte
-			}
-		}
-		log.Println("<<<Packet in from COM START")
-		log.Println("<<<<<-------------------")
-
-		// Command byte
-		select {
-		case p.command = <-com.rxBuffer:
-		// Received
-		case <-time.After(time.Second):
-			continue // discard
-		}
-
-		// Payload
-		pLen := int(p.length)
-		timeout := false
-		for i := 0; i < pLen-5; i++ {
-			select {
-			case payloadByte := <-com.rxBuffer:
-				p.payload = append(p.payload, payloadByte)
-			case <-time.After(time.Second):
-				timeout = true
-			}
-			if timeout {
-				break
-			}
-		}
-		if timeout {
-			log.Println("<<<Packet in from COM TIMEOUT")
-			continue // discard
-		}
-
-		// CRC32
-		rxCrc := make([]byte, 0, 4)
-		for i := 0; i < 4; i++ {
-			select {
-			case crcByte := <-com.rxBuffer:
-				rxCrc = append(rxCrc, crcByte)
-			case <-time.After(time.Second):
-				timeout = true
-			}
-			if timeout {
-				break
-			}
-		}
-		if timeout {
-			log.Println("<<<Packet in from COM TIMEOUT")
-			continue // discard
-		}
-		p.crc = binary.LittleEndian.Uint32(rxCrc)
-
-		// Integrity Checking
-		if p.calcCrc() != p.crc {
-			log.Println("<<<Packet in from COM CRCFAIL")
-			continue // discard
-		}
-
-		// Packet receive done. Process it.
-		rxSeqFlag := (p.command & 0x80) > 0
-		switch p.command & 0x7F {
-		case publish:
-			// STM32 sent us a payload
-			com.txBuffer <- Packet{command: acknowledge | (p.command & 0x80)}
-			if rxSeqFlag == com.expectedRxSeqFlag {
-				com.expectedRxSeqFlag = !com.expectedRxSeqFlag
-				com.tcpLink.Write(p.payload)
-			}
-		case acknowledge:
-			com.acknowledgeChan <- rxSeqFlag
-		}
-
-		log.Println("<<<Packet in from COM DONE")
 	}
 }
 
@@ -181,39 +101,7 @@ func (com *comHandler) txCOM() {
 	}
 }
 
-// Publish packet received from a channel.
-// Will block for second publish, until ack is received for first.
-func (com *comHandler) packetSender() {
-	sequenceTxFlag := false
-	for {
-		p := <-com.comSend
-		log.Println(">>>Packet out to COM START")
-		log.Println("------------------->>>>>>>")
-		if sequenceTxFlag {
-			p.command |= 0x80
-		} else {
-			p.command &= 0x7F // may not be necessary if seq never set
-		}
-		for {
-			com.txBuffer <- p
-			ack := <-com.acknowledgeChan
-			if ack == sequenceTxFlag {
-				sequenceTxFlag = !sequenceTxFlag
-				break
-			}
-			log.Println(">>>RETRY out to COM")
-		}
-		log.Println(">>>Packet out to COM DONE")
-	}
-}
-
-func (com *comHandler) tcpReader() {
-	tx := make([]byte, 128)
-	for {
-		nRx, err := com.tcpLink.Read(tx)
-		if err != nil {
-			log.Fatal("Error Receiving from TCP")
-		}
-		com.comSend <- Packet{command: publish, payload: tx[:nRx]}
-	}
+func (com *comHandler) dialTCP(destination string) (err error) {
+	com.tcpLink, err = net.Dial("tcp", destination)
+	return
 }

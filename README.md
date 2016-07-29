@@ -15,6 +15,5 @@ The microcontroller is effectively making a connection to a MQTT broker over the
 #### Future plans
 - Sort out timeout bugs
 - Unit tests
-- Extend protocol that client can open "tcp" connection by specifying IP destination & port
 - PC side service to listen to all COM ports and concurrently spawn new connections for clients
 - Create a Arduino lib that extends the [Arduino Client class](https://www.arduino.cc/en/Reference/ClientConstructor) so that libraries for existing Ethernet/Wifi shields can theoretically work.

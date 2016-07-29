@@ -151,14 +151,17 @@ static boolean MQTTconnectedPublic(const void* c) {
     return rc;
 }
 
-static boolean MQTTconnectPublic(const void* c, const char *id, const char *user, const char *pass, const char* willTopic, uint8_t willQos, boolean willRetain, const char* willMessage) {
-	if (!MQTTconnectedPublic((PubSubClient*)c)) {
+static boolean MQTTconnectPublic(const void* c, const char *id, const char *user, const char *pass, const char* willTopic, uint8_t willQos, boolean willRetain, const char* willMessage)
+{
+	PubSubClient* self = (PubSubClient*)c;
+
+	if (!MQTTconnectedPublic(self)) {
         int result = 0;
 
-            result = ((PubSubClient*)c)->_client->connect(((PubSubClient*)c)->_client, ((PubSubClient*)c)->ip, ((PubSubClient*)c)->port);
+            result = self->_client->connect(self->_client, self->ip, self->port);
 
         if (result == 1) {
-        	((PubSubClient*)c)->nextMsgId = 1;
+        	self->nextMsgId = 1;
             // Leave room in the buffer for header and variable length field
             uint16_t length = 5;
             unsigned int j;
@@ -171,7 +174,7 @@ static boolean MQTTconnectPublic(const void* c, const char *id, const char *user
 #define MQTT_HEADER_VERSION_LENGTH 7
 #endif
             for (j = 0;j<MQTT_HEADER_VERSION_LENGTH;j++) {
-            	((PubSubClient*)c)->buffer[length++] = d[j];
+            	self->buffer[length++] = d[j];
             }
 
             uint8_t v;
@@ -189,51 +192,51 @@ static boolean MQTTconnectPublic(const void* c, const char *id, const char *user
                 }
             }
 
-            ((PubSubClient*)c)->buffer[length++] = v;
+            self->buffer[length++] = v;
 
-            ((PubSubClient*)c)->buffer[length++] = ((MQTT_KEEPALIVE) >> 8);
-            ((PubSubClient*)c)->buffer[length++] = ((MQTT_KEEPALIVE) & 0xFF);
-            length = MQTTwriteString(id,((PubSubClient*)c)->buffer,length);
+            self->buffer[length++] = ((MQTT_KEEPALIVE) >> 8);
+            self->buffer[length++] = ((MQTT_KEEPALIVE) & 0xFF);
+            length = MQTTwriteString(id,self->buffer,length);
             if (willTopic) {
-                length = MQTTwriteString(willTopic,((PubSubClient*)c)->buffer,length);
-                length = MQTTwriteString(willMessage,((PubSubClient*)c)->buffer,length);
+                length = MQTTwriteString(willTopic,self->buffer,length);
+                length = MQTTwriteString(willMessage,self->buffer,length);
             }
 
             if(user != NULL) {
-                length = MQTTwriteString(user,((PubSubClient*)c)->buffer,length);
+                length = MQTTwriteString(user,self->buffer,length);
                 if(pass != NULL) {
-                    length = MQTTwriteString(pass,((PubSubClient*)c)->buffer,length);
+                    length = MQTTwriteString(pass,self->buffer,length);
                 }
             }
 
-            MQTTwrite((PubSubClient*)c, MQTTCONNECT,((PubSubClient*)c)->buffer,length-5);
+            MQTTwrite(self, MQTTCONNECT,self->buffer,length-5);
 
-            ((PubSubClient*)c)->lastInActivity = ((PubSubClient*)c)->lastOutActivity = HAL_GetTick();
+            self->lastInActivity = self->lastOutActivity = HAL_GetTick();
 
-            while (!((PubSubClient*)c)->_client->available(((PubSubClient*)c)->_client)) {
+            while (!self->_client->available(self->_client)) {
                 unsigned long t = HAL_GetTick();
-                if (t-((PubSubClient*)c)->lastInActivity >= ((int32_t) MQTT_SOCKET_TIMEOUT*1000UL)) {
-                	((PubSubClient*)c)->_state = MQTT_CONNECTION_TIMEOUT;
-                	((PubSubClient*)c)->_client->stop(((PubSubClient*)c)->_client);
+                if (t-self->lastInActivity >= ((int32_t) MQTT_SOCKET_TIMEOUT*1000UL)) {
+                	self->_state = MQTT_CONNECTION_TIMEOUT;
+                	self->_client->stop(self->_client);
                     return false;
                 }
             }
             uint8_t llen;
-            uint16_t len = MQTTreadPacket((PubSubClient*)c, &llen);
+            uint16_t len = MQTTreadPacket(self, &llen);
 
             if (len == 4) {
-                if (((PubSubClient*)c)->buffer[3] == 0) {
-                	((PubSubClient*)c)->lastInActivity = HAL_GetTick();
-                	((PubSubClient*)c)->pingOutstanding = false;
-                	((PubSubClient*)c)->_state = MQTT_CONNECTED;
+                if (self->buffer[3] == 0) {
+                	self->lastInActivity = HAL_GetTick();
+                	self->pingOutstanding = false;
+                	self->_state = MQTT_CONNECTED;
                     return true;
                 } else {
-                	((PubSubClient*)c)->_state = ((PubSubClient*)c)->buffer[3];
+                	self->_state = self->buffer[3];
                 }
             }
-            ((PubSubClient*)c)->_client->stop(((PubSubClient*)c)->_client);
+            self->_client->stop(self->_client);
         } else {
-        	((PubSubClient*)c)->_state = MQTT_CONNECT_FAILED;
+        	self->_state = MQTT_CONNECT_FAILED;
         }
         return false;
     }
@@ -413,6 +416,4 @@ void newPubSubClient(PubSubClient* c, uint8_t *ip, uint16_t port, MQTT_CALLBACK_
 	c->callback = callback;
 
 	c->_state = MQTT_DISCONNECTED;
-
-	client->start(client);
 }

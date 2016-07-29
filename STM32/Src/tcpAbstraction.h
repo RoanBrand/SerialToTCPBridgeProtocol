@@ -12,8 +12,15 @@
 #include "stm32f3xx_hal.h"
 
 #define SERIAL_TIMEOUT 400
-#define PROTOCOL_PUBLISH 0
-#define PROTOCOL_ACK 1
+
+#define PROTOCOL_CONNECT 0
+#define PROTOCOL_CONNACK 1
+#define PROTOCOL_DISCONNECT 2
+#define PROTOCOL_PUBLISH 3
+#define PROTOCOL_ACK 4
+
+#define STATE_DISCONNECTED 0
+#define STATE_CONNECTED 1
 
 typedef struct Client_t
 {
@@ -34,6 +41,8 @@ typedef struct Client_t
 	bool ackOutstanding;
 	bool sequenceTxFlag;
 	bool expectedRxSeqFlag;
+	uint32_t lastInAct, lastOutAct;
+	uint8_t state;
 
 	bool (*start)(const void*);
 	void (*loop)(const void*);

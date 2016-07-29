@@ -15,7 +15,7 @@ static bool rx_available(Client* c)
 static bool rx_read(Client* c, uint8_t* result)
 {
   uint32_t start = HAL_GetTick();
-  while (!rx_available((Client*)c))
+  while (!rx_available(c))
   {
     uint32_t now  = HAL_GetTick();
     if ((now - start) >= SERIAL_TIMEOUT)
@@ -124,10 +124,32 @@ static int readPublic(const void* c)
 
 static int connectPublic(const void* c, uint8_t ip[4], uint16_t port)
 {
-  if (((Client*)c)->start(c))
-    return 1;
+	Client* self = (Client*)c;
 
-  return -1;
+	if (!self->start(c))
+		return -2;
+
+	uint8_t destination[6] = {ip[0], ip[1], ip[2], ip[3], (uint8_t)port, (uint8_t)(port >> 8)};
+	writePacket(self, PROTOCOL_CONNECT, destination, 6);
+
+	self->lastInAct = self->lastOutAct = HAL_GetTick();
+	while (!rx_available(self))
+	{
+		uint32_t now = HAL_GetTick();
+		if (now - self->lastInAct >= 5000) {
+			return -1;
+		}
+	}
+
+	if (readPacket(self)) {
+		if (self->workBuffer[1] == PROTOCOL_CONNACK && self->workBuffer[0] == 5) {
+			self->lastInAct = HAL_GetTick();
+			self->state = STATE_CONNECTED;
+			return 1;
+		}
+	}
+
+	return -4;
 
   /*SUCCESS 1
   TIMED_OUT -1
@@ -139,12 +161,12 @@ static int connectPublic(const void* c, uint8_t ip[4], uint16_t port)
 bool first = false;
 static uint8_t connectedPublic(const void* c)
 {
-	if (!first)
-	{
-		first = true;
-		return false;
-	}
-  return true;
+	Client* self = (Client*)c;
+
+	if (self->state == STATE_CONNECTED)
+		return 1;
+
+	return 0;
 }
 
 static void flushPublic(const void* c)
@@ -170,46 +192,48 @@ static bool startPublic(const void* c)
 
 static void loopPublic(const void* c)
 {
-	if (rx_available((Client*)c))
+	Client* self = (Client*)c;
+
+	if (connectedPublic(c) && rx_available(self))
 	{
-		if (readPacket((Client*)c))
+		if (readPacket(self))
 		{
-			bool rxSeqFlag = (((Client*)c)->workBuffer[1] & 0x80) > 0;
-			switch (((Client*)c)->workBuffer[1] & 0x7F)
+			bool rxSeqFlag = (self->workBuffer[1] & 0x80) > 0;
+			switch (self->workBuffer[1] & 0x7F)
 			{
 				// Message from PC
 				case PROTOCOL_PUBLISH:
-				if (rxSeqFlag == ((Client*)c)->expectedRxSeqFlag)
+				if (rxSeqFlag == self->expectedRxSeqFlag)
 				{
-					((Client*)c)->expectedRxSeqFlag = !((Client*)c)->expectedRxSeqFlag;
+					self->expectedRxSeqFlag = !self->expectedRxSeqFlag;
 
-          if (((Client*)c)->workBuffer[0] > 5)
+          if (self->workBuffer[0] > 5)
           {
-            for (uint8_t i = 0; i < ((Client*)c)->workBuffer[0] - 5; i++)
+            for (uint8_t i = 0; i < self->workBuffer[0] - 5; i++)
             {
-            	((Client*)c)->readBuffer[((Client*)c)->pRx_read++] = ((Client*)c)->workBuffer[2 + i];
+            	self->readBuffer[self->pRx_read++] = self->workBuffer[2 + i];
             }
-            ((Client*)c)->readFull = (((Client*)c)->pRead_read == ((Client*)c)->pRx_read);
+            self->readFull = (self->pRead_read == self->pRx_read);
           }
 
 						// DEBUG LED
-						if (((Client*)c)->workBuffer[2] == 0x31)
+						if (self->workBuffer[2] == 0x31)
 						{
 							HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
-						} else if (((Client*)c)->workBuffer[2] == 0x32)
+						} else if (self->workBuffer[2] == 0x32)
 						{
 							HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
 						}
 				}
-				writePacket(((Client*)c), PROTOCOL_ACK | (((Client*)c)->workBuffer[1] & 0x80), NULL, 0);
+				writePacket(self, PROTOCOL_ACK | (self->workBuffer[1] & 0x80), NULL, 0);
 				break;
 
 				// ACK from PC
 				case PROTOCOL_ACK:
-				if (rxSeqFlag == ((Client*)c)->sequenceTxFlag)
+				if (rxSeqFlag == self->sequenceTxFlag)
 				{
-					((Client*)c)->sequenceTxFlag = !((Client*)c)->sequenceTxFlag;
-					((Client*)c)->ackOutstanding = false;
+					self->sequenceTxFlag = !self->sequenceTxFlag;
+					self->ackOutstanding = false;
 				}
 				break;
 			}
@@ -246,6 +270,7 @@ void newClient(Client* c, UART_HandleTypeDef* uartUnit, CRC_HandleTypeDef* crcUn
 	c->ackOutstanding = false;
 	c->sequenceTxFlag = false;
 	c->expectedRxSeqFlag = false;
+	c->state = STATE_DISCONNECTED;
 
 	c->start = startPublic;
 	c->loop = loopPublic;
