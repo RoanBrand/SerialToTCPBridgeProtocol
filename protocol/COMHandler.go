@@ -5,39 +5,42 @@ import (
 	"fmt"
 	"github.com/tarm/serial"
 	"log"
-	"time"
 	"net"
+	"time"
 )
 
 type comHandler struct {
-	comPort           *serial.Port
-	rxBuffer          chan byte
-	txBuffer          chan Packet
+	comPort *serial.Port
+	tcpLink net.Conn
 
-	acknowledgeChan   chan bool
-	comSend           chan Packet
+	rxBuffer chan byte
+	txBuffer chan Packet
 
-	tcpLink           net.Conn
+	acknowledgeChan chan bool
+	comSend         chan Packet
 
 	expectedRxSeqFlag bool
 }
 
-func NewComHandler(tcp *net.Conn) (*comHandler, error) {
+func NewComHandler(ComName string, ComBaudrate int) (*comHandler, error) {
 	var newListener comHandler
-	config := &serial.Config{Name: "COM6", Baud: 115200}
+	config := &serial.Config{Name: ComName, Baud: ComBaudrate}
+
 	port, err := serial.OpenPort(config)
 	if err != nil {
 		return nil, err
 	}
+	newListener.tcpLink, err = net.Dial("tcp", "127.0.0.1:1883")
+	if err != nil {
+		return nil, err
+	}
+
 	newListener.comPort = port
+	newListener.expectedRxSeqFlag = false
 	newListener.rxBuffer = make(chan byte, 512)
 	newListener.txBuffer = make(chan Packet, 2)
-
 	newListener.acknowledgeChan = make(chan bool)
 	newListener.comSend = make(chan Packet)
-
-	newListener.tcpLink = *tcp
-	newListener.expectedRxSeqFlag = false
 
 	go newListener.rxCOM()
 	go newListener.txCOM()
@@ -49,6 +52,7 @@ func NewComHandler(tcp *net.Conn) (*comHandler, error) {
 }
 
 func (com *comHandler) EndGracefully() {
+	com.tcpLink.Close()
 	com.comPort.Close()
 }
 
@@ -73,13 +77,13 @@ func (com *comHandler) packetReader() {
 		p := Packet{}
 
 		// Length byte
-	WAIT:
+	WAIT_FOR_FIRST_BYTE:
 		for {
 			select {
 			case p.length = <-com.rxBuffer:
-				break WAIT
+				break WAIT_FOR_FIRST_BYTE
 			default:
-				// Loop until we get a first byte
+				// Loop until we get the first byte
 			}
 		}
 		log.Println("<<<Packet in from COM START")
