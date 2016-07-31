@@ -40,9 +40,11 @@ func (p Packet) calcCrc() uint32 {
 
 // Parse receive buffered channel for legitimate packets.
 func (com *comHandler) packetReader() {
+PACKET_RX_LOOP:
 	for {
 		p := Packet{}
 		var ok bool
+
 		// Length byte
 	WAIT_FOR_FIRST_BYTE:
 		for {
@@ -66,12 +68,11 @@ func (com *comHandler) packetReader() {
 				return
 			}
 		case <-time.After(time.Second):
-			continue // discard
+			continue PACKET_RX_LOOP // discard
 		}
 
 		// Payload
 		var payloadByte byte
-		timeout := false
 		for i := 0; i < int(p.length)-5; i++ {
 			select {
 			case payloadByte, ok = <-com.rxBuffer:
@@ -80,15 +81,9 @@ func (com *comHandler) packetReader() {
 				}
 				p.payload = append(p.payload, payloadByte)
 			case <-time.After(time.Second):
-				timeout = true
+				log.Println("<<<Packet in from COM TIMEOUT")
+				continue PACKET_RX_LOOP
 			}
-			if timeout {
-				break
-			}
-		}
-		if timeout {
-			log.Println("<<<Packet in from COM TIMEOUT")
-			continue // discard
 		}
 
 		// CRC32
@@ -102,55 +97,53 @@ func (com *comHandler) packetReader() {
 				}
 				rxCrc = append(rxCrc, crcByte)
 			case <-time.After(time.Second):
-				timeout = true
+				log.Println("<<<Packet in from COM TIMEOUT")
+				continue PACKET_RX_LOOP
 			}
-			if timeout {
-				break
-			}
-		}
-		if timeout {
-			log.Println("<<<Packet in from COM TIMEOUT")
-			continue // discard
 		}
 		p.crc = binary.LittleEndian.Uint32(rxCrc)
 
 		// Integrity Checking
 		if p.calcCrc() != p.crc {
 			log.Println("<<<Packet in from COM CRCFAIL")
-			continue // discard
+			continue PACKET_RX_LOOP
 		}
 
 		// Packet receive done. Process it.
 		log.Println("<<<Packet in from COM DONE")
-		rxSeqFlag := (p.command & 0x80) > 0
-		switch p.command & 0x7F {
-		case publish:
-			// STM32 sent us a payload
-			com.txBuffer <- Packet{command: acknowledge | (p.command & 0x80)}
-			if rxSeqFlag == com.expectedRxSeqFlag {
-				com.expectedRxSeqFlag = !com.expectedRxSeqFlag
-				com.tcpLink.Write(p.payload)
-			}
-		case acknowledge:
-			com.acknowledgeChan <- rxSeqFlag
-		case connect:
-			log.Println("got CONNECT PACKET")
-			if com.state != disconnected {
-				continue
-			}
-			if len(p.payload) != 6 {
-				continue
-			}
-			port := binary.LittleEndian.Uint16(p.payload[4:])
-			destination := strconv.Itoa(int(p.payload[0])) + "." + strconv.Itoa(int(p.payload[1])) + "." + strconv.Itoa(int(p.payload[2])) + "." + strconv.Itoa(int(p.payload[3])) + ":" + strconv.Itoa(int(port))
-			log.Printf("Dialing to: %v", destination)
-			if err := com.dialTCP(destination); err != nil {
-				com.txBuffer <- Packet{command: disconnect}
-				continue
-			}
-			com.state = connected
-			com.txBuffer <- Packet{command: connack}
+		com.handleRxPacket(&p)
+	}
+}
+
+func (com *comHandler) handleRxPacket(packet *Packet) {
+	rxSeqFlag := (packet.command & 0x80) > 0
+	switch packet.command & 0x7F {
+	case publish:
+		// STM32 sent us a payload
+		com.txBuffer <- Packet{command: acknowledge | (packet.command & 0x80)}
+		if rxSeqFlag == com.expectedRxSeqFlag {
+			com.expectedRxSeqFlag = !com.expectedRxSeqFlag
+			com.tcpLink.Write(packet.payload)
 		}
+	case acknowledge:
+		com.acknowledgeChan <- rxSeqFlag
+	case connect:
+		log.Println("got CONNECT PACKET")
+		if com.state != disconnected {
+			return
+		}
+		if len(packet.payload) != 6 {
+			return
+		}
+		port := binary.LittleEndian.Uint16(packet.payload[4:])
+		destination := strconv.Itoa(int(packet.payload[0])) + "." + strconv.Itoa(int(packet.payload[1])) + "." + strconv.Itoa(int(packet.payload[2])) + "." + strconv.Itoa(int(packet.payload[3])) + ":" + strconv.Itoa(int(port))
+		log.Printf("Dialing to: %v", destination)
+		if err := com.dialTCP(destination); err != nil {
+			com.txBuffer <- Packet{command: disconnect}
+			return
+		}
+		com.state = connected
+		com.txBuffer <- Packet{command: connack}
 	}
 }
 
