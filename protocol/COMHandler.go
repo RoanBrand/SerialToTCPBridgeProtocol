@@ -22,8 +22,6 @@ type comHandler struct {
 	txBuffer chan Packet
 
 	acknowledgeChan chan bool
-	comSend         chan Packet
-
 	expectedRxSeqFlag bool
 }
 
@@ -33,7 +31,6 @@ func NewComHandler(ComName string, ComBaudrate int) (*comHandler, error) {
 		rxBuffer:          make(chan byte, 512),
 		txBuffer:          make(chan Packet, 2),
 		acknowledgeChan:   make(chan bool),
-		comSend:           make(chan Packet),
 		expectedRxSeqFlag: false,
 	}
 	var err error
@@ -61,7 +58,6 @@ func (com *comHandler) listenAndServeClient() {
 
 	go com.txCOM()
 	go com.packetSender()
-	go com.tcpReader()
 }
 
 // Receive from Serial COM interface and send through buffered channel.

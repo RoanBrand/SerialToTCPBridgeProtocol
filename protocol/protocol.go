@@ -151,14 +151,17 @@ func (com *comHandler) handleRxPacket(packet *Packet) {
 // Will block for second publish, until ack is received for first.
 func (com *comHandler) packetSender() {
 	sequenceTxFlag := false
+	tx := make([]byte, 512)
 	for {
-		p := <-com.comSend
+		nRx, err := com.tcpLink.Read(tx)
+		if err != nil {
+			log.Fatal("Error Receiving from TCP")
+		}
 		log.Println(">>>Packet out to COM START")
 		log.Println("------------------->>>>>>>")
+		p := Packet{command: publish, payload: tx[:nRx]}
 		if sequenceTxFlag {
 			p.command |= 0x80
-		} else {
-			p.command &= 0x7F // may not be necessary if seq never set
 		}
 		for {
 			com.txBuffer <- p
@@ -170,16 +173,5 @@ func (com *comHandler) packetSender() {
 			log.Println(">>>RETRY out to COM")
 		}
 		log.Println(">>>Packet out to COM DONE")
-	}
-}
-
-func (com *comHandler) tcpReader() {
-	tx := make([]byte, 128)
-	for {
-		nRx, err := com.tcpLink.Read(tx)
-		if err != nil {
-			log.Fatal("Error Receiving from TCP")
-		}
-		com.comSend <- Packet{command: publish, payload: tx[:nRx]}
 	}
 }
