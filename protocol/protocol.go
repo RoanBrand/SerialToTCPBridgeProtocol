@@ -42,12 +42,15 @@ func (p Packet) calcCrc() uint32 {
 func (com *comHandler) packetReader() {
 	for {
 		p := Packet{}
-
+		var ok bool
 		// Length byte
 	WAIT_FOR_FIRST_BYTE:
 		for {
 			select {
-			case p.length = <-com.rxBuffer:
+			case p.length, ok = <-com.rxBuffer:
+				if !ok {
+					return
+				}
 				break WAIT_FOR_FIRST_BYTE
 			default:
 				// Loop until we get the first byte
@@ -58,18 +61,23 @@ func (com *comHandler) packetReader() {
 
 		// Command byte
 		select {
-		case p.command = <-com.rxBuffer:
-		// Received
+		case p.command, ok = <-com.rxBuffer:
+			if !ok {
+				return
+			}
 		case <-time.After(time.Second):
 			continue // discard
 		}
 
 		// Payload
-		pLen := int(p.length)
+		var payloadByte byte
 		timeout := false
-		for i := 0; i < pLen-5; i++ {
+		for i := 0; i < int(p.length)-5; i++ {
 			select {
-			case payloadByte := <-com.rxBuffer:
+			case payloadByte, ok = <-com.rxBuffer:
+				if !ok {
+					return
+				}
 				p.payload = append(p.payload, payloadByte)
 			case <-time.After(time.Second):
 				timeout = true
@@ -85,9 +93,13 @@ func (com *comHandler) packetReader() {
 
 		// CRC32
 		rxCrc := make([]byte, 0, 4)
+		var crcByte byte
 		for i := 0; i < 4; i++ {
 			select {
-			case crcByte := <-com.rxBuffer:
+			case crcByte, ok = <-com.rxBuffer:
+				if !ok {
+					return
+				}
 				rxCrc = append(rxCrc, crcByte)
 			case <-time.After(time.Second):
 				timeout = true

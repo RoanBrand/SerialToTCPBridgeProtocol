@@ -42,7 +42,7 @@ func NewComHandler(ComName string, ComBaudrate int) (*comHandler, error) {
 	if err != nil {
 		return nil, err
 	}
-	go newListener.waitForClient()
+	go newListener.listenAndServeClient()
 	return &newListener, nil
 }
 
@@ -52,7 +52,7 @@ func (com *comHandler) EndGracefully() {
 }
 
 // Wait for client to initiate connection
-func (com *comHandler) waitForClient() {
+func (com *comHandler) listenAndServeClient() {
 	go com.rxCOM()
 	go com.packetReader()
 	log.Println("started waiting for connect packet")
@@ -71,7 +71,9 @@ func (com *comHandler) rxCOM() {
 	for {
 		nRx, err := com.comPort.Read(rx)
 		if err != nil {
-			log.Fatal(err)
+			log.Printf("error reading from com port. device gone? -> %v\n", err)
+			close(com.rxBuffer)
+			return
 		}
 		for _, v := range rx[:nRx] {
 			com.rxBuffer <- v
