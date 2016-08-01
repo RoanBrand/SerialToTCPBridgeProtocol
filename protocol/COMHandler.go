@@ -1,7 +1,6 @@
 package protocol
 
 import (
-	"fmt"
 	"github.com/tarm/serial"
 	"log"
 	"net"
@@ -21,7 +20,7 @@ type comHandler struct {
 	rxBuffer chan byte
 	txBuffer chan Packet
 
-	acknowledgeChan chan bool
+	acknowledgeChan   chan bool
 	expectedRxSeqFlag bool
 }
 
@@ -79,10 +78,8 @@ func (com *comHandler) rxCOM() {
 
 // Receive from channel and write to COM.
 func (com *comHandler) txCOM() {
-	for {
-		txPacket := <-com.txBuffer
-
-		txPacket.length = uint8(len(txPacket.payload) + 5)
+	for txPacket := range com.txBuffer {
+		txPacket.length = byte(len(txPacket.payload) + 5)
 		txPacket.crc = txPacket.calcCrc()
 		serialPacket := txPacket.serialize()
 
@@ -92,9 +89,7 @@ func (com *comHandler) txCOM() {
 			//continue - future better error handling
 		}
 		if nTx != len(serialPacket) {
-			fmt.Println("ERROR!!")
-			fmt.Println("Need to send over uart: ", len(serialPacket))
-			fmt.Println("Sent over uart: ", nTx)
+			log.Printf("COM Send mismatch. Want to send %v bytes. Sent: %v bytes.", len(serialPacket), nTx)
 		}
 	}
 }

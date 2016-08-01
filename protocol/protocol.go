@@ -119,11 +119,13 @@ func (com *comHandler) handleRxPacket(packet *Packet) {
 	rxSeqFlag := (packet.command & 0x80) > 0
 	switch packet.command & 0x7F {
 	case publish:
-		// STM32 sent us a payload
-		com.txBuffer <- Packet{command: acknowledge | (packet.command & 0x80)}
-		if rxSeqFlag == com.expectedRxSeqFlag {
-			com.expectedRxSeqFlag = !com.expectedRxSeqFlag
-			com.tcpLink.Write(packet.payload)
+		// Payload from serial client
+		if com.state == connected {
+			com.txBuffer <- Packet{command: acknowledge | (packet.command & 0x80)}
+			if rxSeqFlag == com.expectedRxSeqFlag {
+				com.expectedRxSeqFlag = !com.expectedRxSeqFlag
+				com.tcpLink.Write(packet.payload)
+			}
 		}
 	case acknowledge:
 		com.acknowledgeChan <- rxSeqFlag
