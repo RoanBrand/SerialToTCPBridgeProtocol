@@ -6,12 +6,13 @@ import (
 )
 
 func main() {
-	com, err := protocol.NewComHandler("COM6", 115200)
+	done := make(chan bool)
+	com, err := protocol.NewComHandler("COM6", 115200, done)
 	if err != nil {
 		log.Fatalf("Error starting COM Handler: %v", err)
 	}
 	defer com.EndGracefully()
 
 	log.Println("Starting Server")
-	for {}
+	_ = <-done
 }

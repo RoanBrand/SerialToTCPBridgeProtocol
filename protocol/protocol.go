@@ -46,20 +46,10 @@ PACKET_RX_LOOP:
 		var ok bool
 
 		// Length byte
-	WAIT_FOR_FIRST_BYTE:
-		for {
-			select {
-			case p.length, ok = <-com.rxBuffer:
-				if !ok {
-					return
-				}
-				break WAIT_FOR_FIRST_BYTE
-			default:
-				// Loop until we get the first byte
-			}
+		p.length, ok = <-com.rxBuffer
+		if !ok {
+			return
 		}
-		log.Println("<<<Packet in from COM START")
-		log.Println("<<<<<-------------------")
 
 		// Command byte
 		select {
@@ -67,7 +57,7 @@ PACKET_RX_LOOP:
 			if !ok {
 				return
 			}
-		case <-time.After(time.Second):
+		case <-time.After(time.Millisecond * 100):
 			continue PACKET_RX_LOOP // discard
 		}
 
@@ -80,7 +70,7 @@ PACKET_RX_LOOP:
 					return
 				}
 				p.payload = append(p.payload, payloadByte)
-			case <-time.After(time.Second):
+			case <-time.After(time.Millisecond * 100):
 				log.Println("<<<Packet in from COM TIMEOUT")
 				continue PACKET_RX_LOOP
 			}
@@ -96,7 +86,7 @@ PACKET_RX_LOOP:
 					return
 				}
 				rxCrc = append(rxCrc, crcByte)
-			case <-time.After(time.Second):
+			case <-time.After(time.Millisecond * 100):
 				log.Println("<<<Packet in from COM TIMEOUT")
 				continue PACKET_RX_LOOP
 			}
@@ -110,7 +100,6 @@ PACKET_RX_LOOP:
 		}
 
 		// Packet receive done. Process it.
-		log.Println("<<<Packet in from COM DONE")
 		com.handleRxPacket(&p)
 	}
 }
@@ -128,7 +117,7 @@ func (com *comHandler) handleRxPacket(packet *Packet) {
 			}
 		}
 	case acknowledge:
-		com.acknowledgeChan <- rxSeqFlag
+		com.acknowledgeEvent <- rxSeqFlag // TODO: if not connected this will block forever
 	case connect:
 		log.Println("got CONNECT PACKET")
 		if com.state != disconnected {
@@ -140,10 +129,11 @@ func (com *comHandler) handleRxPacket(packet *Packet) {
 		port := binary.LittleEndian.Uint16(packet.payload[4:])
 		destination := strconv.Itoa(int(packet.payload[0])) + "." + strconv.Itoa(int(packet.payload[1])) + "." + strconv.Itoa(int(packet.payload[2])) + "." + strconv.Itoa(int(packet.payload[3])) + ":" + strconv.Itoa(int(port))
 		log.Printf("Dialing to: %v", destination)
-		if err := com.dialTCP(destination); err != nil {
-			com.txBuffer <- Packet{command: disconnect}
+		if err := com.dialTCP(destination); err != nil { // TODO: add timeout
+			com.txBuffer <- Packet{command: disconnect} // TODO: payload to contain error or timeout
 			return
 		}
+		com.startEvent <- true
 		com.state = connected
 		com.txBuffer <- Packet{command: connack}
 	}
@@ -167,7 +157,7 @@ func (com *comHandler) packetSender() {
 		}
 		for {
 			com.txBuffer <- p
-			ack := <-com.acknowledgeChan
+			ack := <-com.acknowledgeEvent
 			if ack == sequenceTxFlag {
 				sequenceTxFlag = !sequenceTxFlag
 				break

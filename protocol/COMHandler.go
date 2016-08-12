@@ -20,16 +20,21 @@ type comHandler struct {
 	rxBuffer chan byte
 	txBuffer chan Packet
 
-	acknowledgeChan   chan bool
+	acknowledgeEvent chan bool
+	startEvent       chan bool
+	errorEvent       chan<- bool
+
 	expectedRxSeqFlag bool
 }
 
-func NewComHandler(ComName string, ComBaudrate int) (*comHandler, error) {
+func NewComHandler(ComName string, ComBaudrate int, exitSignal chan<- bool) (*comHandler, error) {
 	newListener := comHandler{
 		state:             disconnected,
 		rxBuffer:          make(chan byte, 512),
 		txBuffer:          make(chan Packet, 2),
-		acknowledgeChan:   make(chan bool),
+		acknowledgeEvent:  make(chan bool),
+		startEvent:        make(chan bool),
+		errorEvent:        exitSignal,
 		expectedRxSeqFlag: false,
 	}
 	var err error
@@ -43,7 +48,9 @@ func NewComHandler(ComName string, ComBaudrate int) (*comHandler, error) {
 }
 
 func (com *comHandler) EndGracefully() {
-	com.tcpLink.Close()
+	if com.tcpLink != nil {
+		com.tcpLink.Close()
+	}
 	com.comPort.Close()
 }
 
@@ -52,8 +59,7 @@ func (com *comHandler) listenAndServeClient() {
 	go com.rxCOM()
 	go com.packetReader()
 	log.Println("started waiting for connect packet")
-	for com.state != connected {
-	}
+	_ = <-com.startEvent
 
 	go com.txCOM()
 	go com.packetSender()
@@ -63,6 +69,7 @@ func (com *comHandler) listenAndServeClient() {
 // Separate Goroutine decouples rx and parsing of packets.
 func (com *comHandler) rxCOM() {
 	rx := make([]byte, 128)
+	com.comPort.Flush()
 	for {
 		nRx, err := com.comPort.Read(rx)
 		if err != nil {

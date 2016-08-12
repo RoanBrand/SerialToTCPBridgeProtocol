@@ -12,7 +12,7 @@ See [STM32SerialToTCPBridgeClient](https://github.com/RoanBrand/STM32SerialToTCP
 
 #### Details
 - The Go service opens a real TCP connection to a set destination on behalf of the serial client.
-- The protocol adds error checking (CRC32) and simple retry capability. See [this](https://en.wikibooks.org/wiki/Serial_Programming/Error_Correction_Methods) for background.
+- The protocol provides the app an in order, duplicates free and error checked byte stream by adding a CRC32 and simple retry mechanism. See [this](https://en.wikibooks.org/wiki/Serial_Programming/Error_Correction_Methods) for background.
 - The service forwards traffic bi-directionally, as long as tcp connection is open and serial line is good.
 
 #### Future plans
