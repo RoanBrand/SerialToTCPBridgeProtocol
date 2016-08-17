@@ -1,0 +1,77 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <title>Serial to TCP Bridge Protocol by RoanBrand</title>
+
+    <link rel="stylesheet" href="stylesheets/styles.css">
+    <link rel="stylesheet" href="stylesheets/github-light.css">
+    <meta name="viewport" content="width=device-width">
+    <!--[if lt IE 9]>
+    <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+    <div class="wrapper">
+      <header>
+        <h1>Serial to TCP Bridge Protocol</h1>
+        <p> An error tolerant serial UART to TCP connection, raw data bridge.</p>
+
+        <p class="view"><a href="https://github.com/RoanBrand/SerialToTCPBridgeProtocol">View the Project on GitHub <small>RoanBrand/SerialToTCPBridgeProtocol</small></a></p>
+
+
+        <ul>
+          <li><a href="https://github.com/RoanBrand/SerialToTCPBridgeProtocol/zipball/master">Download <strong>ZIP File</strong></a></li>
+          <li><a href="https://github.com/RoanBrand/SerialToTCPBridgeProtocol/tarball/master">Download <strong>TAR Ball</strong></a></li>
+          <li><a href="https://github.com/RoanBrand/SerialToTCPBridgeProtocol">View On <strong>GitHub</strong></a></li>
+        </ul>
+      </header>
+      <section>
+        <h1>
+<a id="serialtotcpbridgeprotocol" class="anchor" href="#serialtotcpbridgeprotocol" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>SerialToTCPBridgeProtocol</h1>
+
+<p>An error tolerant serial UART to TCP connection, raw data bridge.</p>
+
+<p>PC side service written in Go that listens on COM ports for serial clients. 
+This is meant to bridge the gap between tcp connections and serial devices using UART/RS-232/Virtual COM over USB, etc. 
+Clients implementing the protocol have a tcp like api that they can use to make connections to real servers. 
+The goal of the project is to have the means to connect the simplest and cheapest devices to the internet, albeit indirectly. </p>
+
+<hr>
+
+<p>See <a href="https://github.com/RoanBrand/STM32SerialToTCPBridgeClient">STM32SerialToTCPBridgeClient</a> for an example of a client, written in c, that connects to a MQTT broker from a STM32 Nucleo F334R8 development board.</p>
+
+<hr>
+
+<h4>
+<a id="details" class="anchor" href="#details" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Details</h4>
+
+<ul>
+<li>The Go service opens a real TCP connection to a set destination on behalf of the serial client.</li>
+<li>The protocol provides the app an in order, duplicates free and error checked byte stream by adding a CRC32 and simple retry mechanism. See <a href="https://en.wikibooks.org/wiki/Serial_Programming/Error_Correction_Methods">this</a> for background.</li>
+<li>The service forwards traffic bi-directionally, as long as tcp connection is open and serial line is good.</li>
+</ul>
+
+<h4>
+<a id="future-plans" class="anchor" href="#future-plans" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Future plans</h4>
+
+<ul>
+<li>Add config. Turn into os service. </li>
+<li>Sort out timeout bugs</li>
+<li>Add ping to periodically test serial line</li>
+<li>Multiple connections for clients to servers</li>
+<li>Unit tests</li>
+<li>PC side service to listen to all COM ports and concurrently spawn new connections for clients</li>
+<li>Create a Arduino lib/client that extends the <a href="https://www.arduino.cc/en/Reference/ClientConstructor">Arduino Client class</a> so that libraries for existing Ethernet/Wifi shields can theoretically work.</li>
+</ul>
+      </section>
+      <footer>
+        <p>This project is maintained by <a href="https://github.com/RoanBrand">RoanBrand</a></p>
+        <p><small>Hosted on GitHub Pages &mdash; Theme by <a href="https://github.com/orderedlist">orderedlist</a></small></p>
+      </footer>
+    </div>
+    <script src="javascripts/scale.fix.js"></script>
+    
+  </body>
+</html>
