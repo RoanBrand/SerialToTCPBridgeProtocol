@@ -6,6 +6,7 @@ import (
 	"net"
 )
 
+// Connection State
 const (
 	disconnected = iota
 	connected

@@ -8,6 +8,7 @@ import (
 	"time"
 )
 
+// Protocol Commands
 const (
 	connect = iota
 	connack
@@ -58,6 +59,7 @@ PACKET_RX_LOOP:
 				return
 			}
 		case <-time.After(time.Millisecond * 100):
+			log.Println("<<<Packet in from COM TIMEOUT")
 			continue PACKET_RX_LOOP // discard
 		}
 
@@ -99,11 +101,11 @@ PACKET_RX_LOOP:
 			continue PACKET_RX_LOOP
 		}
 
-		// Packet receive done. Process it.
 		com.handleRxPacket(&p)
 	}
 }
 
+// Packet RX done. Handle it.
 func (com *comHandler) handleRxPacket(packet *Packet) {
 	rxSeqFlag := (packet.command & 0x80) > 0
 	switch packet.command & 0x7F {
@@ -117,53 +119,73 @@ func (com *comHandler) handleRxPacket(packet *Packet) {
 			}
 		}
 	case acknowledge:
-		com.acknowledgeEvent <- rxSeqFlag // TODO: if not connected this will block forever
+		if com.state == connected {
+			com.acknowledgeEvent <- rxSeqFlag
+		}
 	case connect:
-		log.Println("got CONNECT PACKET")
 		if com.state != disconnected {
 			return
 		}
 		if len(packet.payload) != 6 {
 			return
 		}
+
 		port := binary.LittleEndian.Uint16(packet.payload[4:])
-		destination := strconv.Itoa(int(packet.payload[0])) + "." + strconv.Itoa(int(packet.payload[1])) + "." + strconv.Itoa(int(packet.payload[2])) + "." + strconv.Itoa(int(packet.payload[3])) + ":" + strconv.Itoa(int(port))
+
+		destination := strconv.Itoa(int(packet.payload[0])) + "."
+		destination += strconv.Itoa(int(packet.payload[1])) + "."
+		destination += strconv.Itoa(int(packet.payload[2])) + "."
+		destination += strconv.Itoa(int(packet.payload[3])) + ":"
+		destination += strconv.Itoa(int(port))
+
 		log.Printf("Dialing to: %v", destination)
 		if err := com.dialTCP(destination); err != nil { // TODO: add timeout
+			log.Printf("Failed to connect to: %v", destination)
 			com.txBuffer <- Packet{command: disconnect} // TODO: payload to contain error or timeout
 			return
 		}
+		log.Printf("Connected")
 		com.startEvent <- true
 		com.state = connected
 		com.txBuffer <- Packet{command: connack}
 	}
 }
 
-// Publish packet received from a channel.
-// Will block for second publish, until ack is received for first.
+// Publish data received from upstream tcp server.
+// We need to get an Ack before sending the next publish packet.
+// Resend same publish packet after timeout, and kill link after 5 retries.
 func (com *comHandler) packetSender() {
 	sequenceTxFlag := false
+	retries := 0
 	tx := make([]byte, 512)
 	for {
 		nRx, err := com.tcpLink.Read(tx)
 		if err != nil {
 			log.Fatal("Error Receiving from TCP")
 		}
-		log.Println(">>>Packet out to COM START")
-		log.Println("------------------->>>>>>>")
 		p := Packet{command: publish, payload: tx[:nRx]}
 		if sequenceTxFlag {
 			p.command |= 0x80
 		}
+	PUB_LOOP:
 		for {
 			com.txBuffer <- p
-			ack := <-com.acknowledgeEvent
-			if ack == sequenceTxFlag {
-				sequenceTxFlag = !sequenceTxFlag
-				break
+			select {
+			case ack := <-com.acknowledgeEvent:
+				retries = 0
+				if ack == sequenceTxFlag {
+					sequenceTxFlag = !sequenceTxFlag
+					break PUB_LOOP // success
+				}
+			case <-time.After(time.Millisecond * 500):
+				retries++
+				if retries >= 5 {
+					com.txBuffer <- Packet{command: disconnect}
+					com.state = disconnected
+					log.Println("Too many send retries. Client disconnected")
+					return
+				}
 			}
-			log.Println(">>>RETRY out to COM")
 		}
-		log.Println(">>>Packet out to COM DONE")
 	}
 }

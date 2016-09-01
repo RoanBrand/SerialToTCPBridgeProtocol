@@ -7,7 +7,7 @@ import (
 
 func main() {
 	done := make(chan bool)
-	com, err := protocol.NewComHandler("COM6", 115200, done)
+	com, err := protocol.NewComHandler("COM3", 115200, done)
 	if err != nil {
 		log.Fatalf("Error starting COM Handler: %v", err)
 	}
