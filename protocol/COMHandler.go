@@ -1,81 +1,77 @@
 package protocol
 
 import (
+	"errors"
 	"github.com/tarm/serial"
 	"log"
 	"net"
+	"sync"
 )
 
 // Connection State
 const (
-	disconnected = iota
+	COMNotEstablished = iota
+	disconnected
 	connected
 )
 
 type comHandler struct {
-	tcpLink net.Conn
-	comPort *serial.Port
+	upstreamLink net.Conn
+	comPort      *serial.Port
+	comConfig    *serial.Config
 
 	state uint8
 
 	rxBuffer chan byte
 	txBuffer chan Packet
 
-	acknowledgeEvent chan bool
-	startEvent       chan bool
-	errorEvent       chan<- bool
-
+	acknowledgeEvent  chan bool
 	expectedRxSeqFlag bool
+	session           sync.WaitGroup
 }
 
-func NewComHandler(ComName string, ComBaudrate int, exitSignal chan<- bool) (*comHandler, error) {
-	newListener := comHandler{
-		state:             disconnected,
-		rxBuffer:          make(chan byte, 512),
-		txBuffer:          make(chan Packet, 2),
-		acknowledgeEvent:  make(chan bool),
-		startEvent:        make(chan bool),
-		errorEvent:        exitSignal,
-		expectedRxSeqFlag: false,
+func NewComHandler(ComName string, ComBaudRate int) *comHandler {
+	new := comHandler{
+		comConfig: &serial.Config{Name: ComName, Baud: ComBaudRate},
+		state:     COMNotEstablished,
 	}
+	return &new
+}
+
+// Service a protocol client on a single COM interface
+func (com *comHandler) ListenAndServeClient() error {
 	var err error
-	config := &serial.Config{Name: ComName, Baud: ComBaudrate}
-	newListener.comPort, err = serial.OpenPort(config)
+	com.comPort, err = serial.OpenPort(com.comConfig)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	go newListener.listenAndServeClient()
-	return &newListener, nil
-}
 
-func (com *comHandler) EndGracefully() {
-	if com.tcpLink != nil {
-		com.tcpLink.Close()
-	}
-	com.comPort.Close()
-}
+	com.rxBuffer = make(chan byte, 512)
+	com.acknowledgeEvent = make(chan bool)
+	com.state = disconnected
 
-// Wait for client to initiate connection
-func (com *comHandler) listenAndServeClient() {
+	log.Println("Listening on", com.comConfig.Name)
+
+	// Start COM RX
+	com.session.Add(2)
 	go com.rxCOM()
 	go com.packetReader()
-	log.Println("started waiting for connect packet")
-	_ = <-com.startEvent
 
-	go com.txCOM()
-	go com.packetSender()
+	com.session.Wait()
+	return errors.New("COM Port Lost")
 }
 
 // Receive from Serial COM interface and send through buffered channel.
 // Separate Goroutine decouples rx and parsing of packets.
 func (com *comHandler) rxCOM() {
+	defer com.session.Done()
 	rx := make([]byte, 128)
 	com.comPort.Flush()
 	for {
 		nRx, err := com.comPort.Read(rx)
 		if err != nil {
-			log.Printf("error reading from com port. device gone? -> %v\n", err)
-			close(com.rxBuffer)
+			log.Printf("Error reading from COM: %v\n", err)
+			com.dropCOM()
 			return
 		}
 		for _, v := range rx[:nRx] {
@@ -86,6 +82,7 @@ func (com *comHandler) rxCOM() {
 
 // Receive from channel and write to COM.
 func (com *comHandler) txCOM() {
+	defer com.session.Done()
 	for txPacket := range com.txBuffer {
 		txPacket.length = byte(len(txPacket.payload) + 5)
 		txPacket.crc = txPacket.calcCrc()
@@ -93,16 +90,27 @@ func (com *comHandler) txCOM() {
 
 		nTx, err := com.comPort.Write(serialPacket)
 		if err != nil {
-			log.Fatal(err)
-			//continue - future better error handling
+			log.Printf("Error writing to COM: %v\n", err)
+			com.dropCOM()
+			return
 		}
+
 		if nTx != len(serialPacket) {
-			log.Printf("COM Send mismatch. Want to send %v bytes. Sent: %v bytes.", len(serialPacket), nTx)
+			log.Printf("COM TX mismatch. Want to send %v bytes. Sent: %v bytes.", len(serialPacket), nTx)
 		}
 	}
 }
 
-func (com *comHandler) dialTCP(destination string) (err error) {
-	com.tcpLink, err = net.Dial("tcp", destination)
+// Open connection to upstream server on behalf of client
+func (com *comHandler) dialUpstream(destination string) (err error) {
+	com.upstreamLink, err = net.Dial("tcp", destination)
 	return
+}
+
+// Stop activity and release COM interface
+func (com *comHandler) dropCOM() {
+	com.dropLink()
+	com.comPort.Close()
+	close(com.rxBuffer)
+	com.state = COMNotEstablished
 }
