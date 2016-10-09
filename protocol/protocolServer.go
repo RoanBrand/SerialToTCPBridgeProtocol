@@ -6,34 +6,18 @@ import (
 	"log"
 	"net"
 	"strconv"
-	"sync"
 	"time"
 )
 
-// Protocol server connection states
-const (
-	DownstreamNotReady = iota
-	Disconnected
-	Connected
-)
-
-// A server implementation of the protocol.
+// Implementation of the Protocol Server.
 type server struct {
-	uStream net.Conn            // Upstream connection to tcp Server.
-	dStream serialConnInterface // Downstream connection to protocol Client.
-
-	state   uint8
-	session sync.WaitGroup
-
-	rxBuff chan byte
-	txBuff chan Packet
-
-	acknowledgeEvent  chan bool
-	expectedRxSeqFlag bool
+	uStream net.Conn          // Upstream connection to tcp Server.
+	dStream protocolTransport // Downstream connection to protocol Client.
+	protocolSession           // Connection session between protocol Server/Gateway & Client.
 }
 
 // Initialize downstream RX and listen for a protocol Client.
-func (s *server) Listen(ds serialConnInterface) {
+func (s *server) Listen(ds protocolTransport) {
 	s.dStream = ds
 	s.rxBuff = make(chan byte, 512)
 	s.acknowledgeEvent = make(chan bool)
@@ -296,5 +280,5 @@ func (s *server) dropServer() {
 	s.dropLink()
 	s.dStream.Close()
 	close(s.rxBuff)
-	s.state = DownstreamNotReady
+	s.state = TransportNotReady
 }

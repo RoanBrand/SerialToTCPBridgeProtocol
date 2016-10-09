@@ -12,7 +12,7 @@ const (
 )
 
 func main() {
-	com := protocol.NewComHandler(COMPortName, COMBaudRate)
+	com := protocol.NewComServer(COMPortName, COMBaudRate)
 	for {
 		err := com.ServeCOM()
 		log.Printf("%v: Error: %v\n", COMPortName, err)

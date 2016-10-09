@@ -1,3 +1,6 @@
+// Examples of using RS-232/Virtual-Serial over USB
+// as the transport layer for the protocol.
+
 package protocol
 
 import (
@@ -7,26 +10,41 @@ import (
 )
 
 // A protocol server listening on a COM port.
-type comHandler struct {
-	protocolServer server
-	comConfig      *serial.Config
+type comServer struct {
+	server
+	comConfig *serial.Config
 }
 
-func NewComHandler(ComName string, ComBaudRate int) *comHandler {
-	com := comHandler{
+func NewComServer(ComName string, ComBaudRate int) *comServer {
+	s := comServer{
 		comConfig: &serial.Config{Name: ComName, Baud: ComBaudRate},
 	}
-	return &com
+	return &s
 }
 
 // Start server on a COM port interface to service single protocol Client.
-func (com *comHandler) ServeCOM() error {
+func (com *comServer) ServeCOM() error {
 	comPort, err := serial.OpenPort(com.comConfig)
 	if err != nil {
 		return err
 	}
 
 	log.Println("Listening on", com.comConfig.Name)
-	com.protocolServer.Listen(comPort)
+	com.Listen(comPort)
 	return errors.New("COM Port Lost")
+}
+
+// A protocol client dialing to Server/Gateway over a COM port.
+type comClient struct {
+	client
+}
+
+func NewComClient(ComName string, ComBaudRate int) (*comClient, error) {
+	c := comClient{}
+	var err error
+	c.com, err = serial.OpenPort(&serial.Config{Name: ComName, Baud: ComBaudRate})
+	if err != nil {
+		return nil, err
+	}
+	return &c, nil
 }
