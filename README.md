@@ -10,6 +10,10 @@ For now, I use this to connect microcontrollers on development boards to servers
 An implementation of the Protocol Gateway and Client, written in Go, is included here.
 See [STM32SerialToTCPBridgeClient](https://github.com/RoanBrand/STM32SerialToTCPBridgeClient) for an example of another Client, written in c, that connects to a MQTT broker from a STM32 Nucleo F334R8 development board (ARM Cortex-M4).
 
+#### Use
+- Open a terminal, then run `go get -u github.com/RoanBrand/SerialToTCPBridgeProtocol`
+- Run the binary in `$GOPATH/bin`
+
 #### Details
 - The protocol provides the app an in order, duplicates free and error checked byte stream by adding a CRC32 and simple retry mechanism. See [this](https://en.wikibooks.org/wiki/Serial_Programming/Error_Correction_Methods) for background.
 - The **Protocol Gateway** opens a real TCP connection to a set destination on behalf of the Protocol Client.
@@ -19,7 +23,8 @@ See [STM32SerialToTCPBridgeClient](https://github.com/RoanBrand/STM32SerialToTCP
 
 
 #### Tests
- - Using a terminal, change directory into the `protocol` folder.
+ - Open a terminal, then run `go get -u github.com/RoanBrand/goBuffers`
+ - In the terminal, change directory to the `protocol` folder inside the repository
  - Run `go test -v` in the terminal
 
 #### Future plans
