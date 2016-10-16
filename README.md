@@ -1,4 +1,4 @@
-# SerialToTCPBridgeProtocol
+# Serial to TCP Bridge Protocol
  An error tolerant serial UART to TCP connection, raw data bridge.
 
 PC side service written in Go that listens on COM ports for serial clients.  
