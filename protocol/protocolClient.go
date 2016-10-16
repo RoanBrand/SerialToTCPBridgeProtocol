@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"bytes"
+	"errors"
 	"log"
 	"time"
 )
@@ -136,55 +137,20 @@ func (c *client) handleRxPacket(packet *Packet) {
 		c.state = Connected
 		c.acknowledgeEvent <- true
 		c.session.Add(1)
-		go c.packetSender()
+		go c.packetSender(func() (p Packet, err error) {
+			p, ok := <-c.userData_tx
+			if ok {
+				err = nil
+			} else {
+				err = errors.New("channel closed")
+			}
+			return
+		}, c.Stop)
 		// log.Println("Client: Connected")
 	case disconnect:
 		if c.state == Connected {
 			log.Println("Client wants to disconnect. Ending link session")
 			c.Stop()
-		}
-	}
-}
-
-// Publish data from user app over Serial interface.
-// We need to get an Ack before sending the next publish packet.
-// Resend same publish packet after timeout, and kill link after 5 retries.
-func (c *client) packetSender() {
-	defer c.session.Done()
-	sequenceTxFlag := false
-	retries := 0
-	for {
-		p, ok := <-c.userData_tx
-		if !ok {
-			if c.state == Connected {
-				// log.Printf("Error receiving upstream: %v. Disconnecting client\n", err)
-				c.txBuff <- Packet{command: disconnect}
-				// c.dropLink()
-			}
-			return
-		}
-		if sequenceTxFlag {
-			p.command |= 0x80
-		}
-	PUB_LOOP:
-		for {
-			c.txBuff <- p
-			select {
-			case ack, ok := <-c.acknowledgeEvent:
-				if ok && ack == sequenceTxFlag {
-					retries = 0
-					sequenceTxFlag = !sequenceTxFlag
-					break PUB_LOOP // success
-				}
-			case <-time.After(time.Millisecond * 500):
-				retries++
-				if retries >= 5 {
-					log.Println("Too many downstream send retries. Disconnecting client")
-					c.txBuff <- Packet{command: disconnect}
-					c.Stop()
-					return
-				}
-			}
 		}
 	}
 }

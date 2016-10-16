@@ -119,6 +119,54 @@ PACKET_RX_LOOP:
 	}
 }
 
+// Publish data over Serial interface.
+// We need to get an Ack before sending the next publish packet.
+// Resend same publish packet after timeout, and kill link after 5 retries.
+func (t *protocolTransport) packetSender(getData func() (Packet, error), onError func()) {
+	defer t.session.Done()
+	sequenceTxFlag := false
+	retries := 0
+	for {
+		p, err := getData()
+		if err != nil {
+			if t.state == Connected {
+				log.Printf("Error receiving data: %v. Disconnecting from Protocol partner\n", err)
+				t.txBuff <- Packet{command: disconnect}
+				if onError != nil {
+					onError()
+				}
+			}
+			return
+		}
+		if sequenceTxFlag {
+			p.command |= 0x80
+		}
+	PUB_LOOP:
+		for {
+			t.txBuff <- p
+			select {
+			case ack, ok := <-t.acknowledgeEvent:
+				if ok && ack == sequenceTxFlag {
+					retries = 0
+					sequenceTxFlag = !sequenceTxFlag
+					break PUB_LOOP // success
+				}
+			case <-time.After(time.Millisecond * 500):
+				retries++
+				if retries >= 5 {
+					log.Println("Too many tx serial retries. Disconnecting from Protocol partner")
+					t.txBuff <- Packet{command: disconnect}
+					if onError != nil {
+						onError()
+					}
+					return
+				}
+			}
+		}
+	}
+}
+
+// Generate tcp connection string used to dial tcp server from Protocol Client's connect packet payload.
 func makeTCPConnString(connPayload []byte) string {
 	port := binary.LittleEndian.Uint16(connPayload[4:])
 	connString := ""

@@ -3,7 +3,6 @@ package protocol
 import (
 	"log"
 	"net"
-	"time"
 )
 
 // Implementation of the Protocol Gateway.
@@ -76,7 +75,13 @@ func (g *gateway) handleRxPacket(packet *Packet) {
 
 		// Start link session
 		g.session.Add(1)
-		go g.packetSender()
+		tx := make([]byte, 512)
+		go g.packetSender(func() (p Packet, err error) {
+			// Publish data downstream received from upstream tcp server.
+			n, err := g.uStream.Read(tx)
+			p = Packet{command: publish, payload: tx[:n]}
+			return
+		}, g.dropLink)
 		// log.Printf("Gateway: Connected to %v\n", dstStr)
 		g.state = Connected
 		g.txBuff <- Packet{command: connack}
@@ -84,51 +89,6 @@ func (g *gateway) handleRxPacket(packet *Packet) {
 		if g.state == Connected {
 			log.Println("Client wants to disconnect. Ending link session")
 			g.dropLink()
-		}
-	}
-}
-
-// Publish data downstream received from upstream tcp server.
-// We need to get an Ack before sending the next publish packet.
-// Resend same publish packet after timeout, and kill link after 5 retries.
-func (g *gateway) packetSender() {
-	defer g.session.Done()
-	sequenceTxFlag := false
-	retries := 0
-	tx := make([]byte, 512)
-	for {
-		nRx, err := g.uStream.Read(tx)
-		if err != nil {
-			if g.state == Connected {
-				log.Printf("Error receiving upstream: %v. Disconnecting client\n", err)
-				g.txBuff <- Packet{command: disconnect}
-				g.dropLink()
-			}
-			return
-		}
-		p := Packet{command: publish, payload: tx[:nRx]}
-		if sequenceTxFlag {
-			p.command |= 0x80
-		}
-	PUB_LOOP:
-		for {
-			g.txBuff <- p
-			select {
-			case ack, ok := <-g.acknowledgeEvent:
-				if ok && ack == sequenceTxFlag {
-					retries = 0
-					sequenceTxFlag = !sequenceTxFlag
-					break PUB_LOOP // success
-				}
-			case <-time.After(time.Millisecond * 500):
-				retries++
-				if retries >= 5 {
-					log.Println("Too many downstream send retries. Disconnecting client")
-					g.txBuff <- Packet{command: disconnect}
-					g.dropLink()
-					return
-				}
-			}
 		}
 	}
 }
