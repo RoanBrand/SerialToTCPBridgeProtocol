@@ -11,60 +11,34 @@ import (
 
 // Implementation of the Protocol Gateway.
 type gateway struct {
-	protocolSession                   // Connection session between Protocol Gateway & Client.
-	dStream         protocolTransport // Downstream connection to Protocol Client.
-	uStream         net.Conn          // Upstream connection to tcp Server.
+	protocolTransport          // Connection between Protocol Gateway & Client.
+	uStream           net.Conn // Upstream connection to tcp Server.
 }
 
 // Initialize downstream RX and listen for a protocol Client.
-func (s *gateway) Listen(ds protocolTransport) {
-	s.dStream = ds
-	s.rxBuff = make(chan byte, 512)
-	s.acknowledgeEvent = make(chan bool)
-	s.state = Disconnected
+func (g *gateway) Listen(ds serialInterface) {
+	g.com = ds
+	g.rxBuff = make(chan byte, 512)
+	g.acknowledgeEvent = make(chan bool)
+	g.state = Disconnected
 
-	s.session.Add(2)
-	go s.rxDownstream()
-	go s.packetReader()
-	s.session.Wait()
-}
-
-// Receive from downstream and write to RX buffer.
-func (s *gateway) rxDownstream() {
-	defer s.session.Done()
-	rx := make([]byte, 512)
-	s.dStream.Flush()
-	for {
-		nRx, err := s.dStream.Read(rx)
-		if err != nil {
-			log.Printf("Error receiving downstream: %v\n", err)
-			s.dropServer()
-			return
-		}
-		/*
-			logLock.Lock()
-			log.Println("Gateway RX:")
-			log.Println(rx[:nRx])
-			log.Println(string(rx[2:nRx]))
-			logLock.Unlock()
-		*/
-		for _, v := range rx[:nRx] {
-			s.rxBuff <- v
-		}
-	}
+	g.session.Add(2)
+	go g.rxSerial(g.dropGateway)
+	go g.packetReader()
+	g.session.Wait()
 }
 
 // Parse RX buffer for legitimate packets.
-func (s *gateway) packetReader() {
-	defer s.session.Done()
+func (g *gateway) packetReader() {
+	defer g.session.Done()
 	timeouts := 0
 PACKET_RX_LOOP:
 	for {
 		if timeouts >= 5 {
-			if s.state == Connected {
+			if g.state == Connected {
 				log.Println("Downstream RX timeout. Disconnecting client")
-				s.txBuff <- Packet{command: disconnect}
-				s.dropLink()
+				g.txBuff <- Packet{command: disconnect}
+				g.dropLink()
 				return
 			}
 			timeouts = 0
@@ -74,14 +48,14 @@ PACKET_RX_LOOP:
 		var ok bool
 
 		// Length byte
-		p.length, ok = <-s.rxBuff
+		p.length, ok = <-g.rxBuff
 		if !ok {
 			return
 		}
 
 		// Command byte
 		select {
-		case p.command, ok = <-s.rxBuff:
+		case p.command, ok = <-g.rxBuff:
 			if !ok {
 				return
 			}
@@ -93,7 +67,7 @@ PACKET_RX_LOOP:
 		// Payload
 		for i := 0; i < int(p.length)-5; i++ {
 			select {
-			case payloadByte, ok := <-s.rxBuff:
+			case payloadByte, ok := <-g.rxBuff:
 				if !ok {
 					return
 				}
@@ -108,7 +82,7 @@ PACKET_RX_LOOP:
 		rxCrc := make([]byte, 0, 4)
 		for i := 0; i < 4; i++ {
 			select {
-			case crcByte, ok := <-s.rxBuff:
+			case crcByte, ok := <-g.rxBuff:
 				if !ok {
 					return
 				}
@@ -127,34 +101,34 @@ PACKET_RX_LOOP:
 			continue PACKET_RX_LOOP
 		}
 		timeouts = 0
-		s.handleRxPacket(&p)
+		g.handleRxPacket(&p)
 	}
 }
 
 // Packet RX done. Handle it.
-func (s *gateway) handleRxPacket(packet *Packet) {
+func (g *gateway) handleRxPacket(packet *Packet) {
 	var rxSeqFlag bool = (packet.command & 0x80) > 0
 	switch packet.command & 0x7F {
 	case publish:
 		// Payload from serial client
-		if s.state == Connected {
-			s.txBuff <- Packet{command: acknowledge | (packet.command & 0x80)}
-			if rxSeqFlag == s.expectedRxSeqFlag {
-				s.expectedRxSeqFlag = !s.expectedRxSeqFlag
-				_, err := s.uStream.Write(packet.payload)
+		if g.state == Connected {
+			g.txBuff <- Packet{command: acknowledge | (packet.command & 0x80)}
+			if rxSeqFlag == g.expectedRxSeqFlag {
+				g.expectedRxSeqFlag = !g.expectedRxSeqFlag
+				_, err := g.uStream.Write(packet.payload)
 				if err != nil {
 					log.Printf("Error sending upstream: %v Disconnecting client\n", err)
-					s.txBuff <- Packet{command: disconnect}
-					s.dropLink()
+					g.txBuff <- Packet{command: disconnect}
+					g.dropLink()
 				}
 			}
 		}
 	case acknowledge:
-		if s.state == Connected {
-			s.acknowledgeEvent <- rxSeqFlag
+		if g.state == Connected {
+			g.acknowledgeEvent <- rxSeqFlag
 		}
 	case connect:
-		if s.state != Disconnected {
+		if g.state != Disconnected {
 			return
 		}
 		if len(packet.payload) != 6 {
@@ -173,33 +147,33 @@ func (s *gateway) handleRxPacket(packet *Packet) {
 		dst.WriteString(strconv.Itoa(int(port)))
 		dstStr := dst.String()
 
-		s.txBuff = make(chan Packet, 2)
-		s.expectedRxSeqFlag = false
+		g.txBuff = make(chan Packet, 2)
+		g.expectedRxSeqFlag = false
 
 		// Start downstream TX
-		s.session.Add(1)
-		go s.txDownstream()
+		g.session.Add(1)
+		go g.txSerial(g.dropGateway)
 
 		// Open connection to upstream server on behalf of client
 		// log.Printf("Gateway: Connect request from client. Dialing to: %v\n", dstStr)
 		var err error
-		if s.uStream, err = net.Dial("tcp", dstStr); err != nil { // TODO: add timeout
+		if g.uStream, err = net.Dial("tcp", dstStr); err != nil { // TODO: add timeout
 			log.Printf("Gateway: Failed to connect to: %v\n", dstStr)
-			s.txBuff <- Packet{command: disconnect} // TODO: payload to contain error or timeout
-			s.dropLink()
+			g.txBuff <- Packet{command: disconnect} // TODO: payload to contain error or timeout
+			g.dropLink()
 			return
 		}
 
 		// Start link session
-		s.session.Add(1)
-		go s.packetSender()
+		g.session.Add(1)
+		go g.packetSender()
 		// log.Printf("Gateway: Connected to %v\n", dstStr)
-		s.state = Connected
-		s.txBuff <- Packet{command: connack}
+		g.state = Connected
+		g.txBuff <- Packet{command: connack}
 	case disconnect:
-		if s.state == Connected {
+		if g.state == Connected {
 			log.Println("Client wants to disconnect. Ending link session")
-			s.dropLink()
+			g.dropLink()
 		}
 	}
 }
@@ -207,18 +181,18 @@ func (s *gateway) handleRxPacket(packet *Packet) {
 // Publish data downstream received from upstream tcp server.
 // We need to get an Ack before sending the next publish packet.
 // Resend same publish packet after timeout, and kill link after 5 retries.
-func (s *gateway) packetSender() {
-	defer s.session.Done()
+func (g *gateway) packetSender() {
+	defer g.session.Done()
 	sequenceTxFlag := false
 	retries := 0
 	tx := make([]byte, 512)
 	for {
-		nRx, err := s.uStream.Read(tx)
+		nRx, err := g.uStream.Read(tx)
 		if err != nil {
-			if s.state == Connected {
+			if g.state == Connected {
 				log.Printf("Error receiving upstream: %v. Disconnecting client\n", err)
-				s.txBuff <- Packet{command: disconnect}
-				s.dropLink()
+				g.txBuff <- Packet{command: disconnect}
+				g.dropLink()
 			}
 			return
 		}
@@ -228,9 +202,9 @@ func (s *gateway) packetSender() {
 		}
 	PUB_LOOP:
 		for {
-			s.txBuff <- p
+			g.txBuff <- p
 			select {
-			case ack, ok := <-s.acknowledgeEvent:
+			case ack, ok := <-g.acknowledgeEvent:
 				if ok && ack == sequenceTxFlag {
 					retries = 0
 					sequenceTxFlag = !sequenceTxFlag
@@ -240,8 +214,8 @@ func (s *gateway) packetSender() {
 				retries++
 				if retries >= 5 {
 					log.Println("Too many downstream send retries. Disconnecting client")
-					s.txBuff <- Packet{command: disconnect}
-					s.dropLink()
+					g.txBuff <- Packet{command: disconnect}
+					g.dropLink()
 					return
 				}
 			}
@@ -249,49 +223,22 @@ func (s *gateway) packetSender() {
 	}
 }
 
-// Read from TX buffer and write out downstream.
-func (s *gateway) txDownstream() {
-	defer s.session.Done()
-	for txPacket := range s.txBuff {
-		txPacket.length = byte(len(txPacket.payload) + 5)
-		txPacket.crc = txPacket.calcCrc()
-		serialPacket := txPacket.serialize()
-
-		nTx, err := s.dStream.Write(serialPacket)
-		if err != nil {
-			log.Printf("Error writing downstream: %v\n", err)
-			s.dropServer()
-			return
-		}
-		/*
-			logLock.Lock()
-			log.Println("Gateway TX:")
-			log.Println(serialPacket)
-			log.Println(string(serialPacket[2:]))
-			logLock.Unlock()
-		*/
-		if nTx != len(serialPacket) {
-			log.Printf("TX mismatch. Want to send %v bytes. Sent: %v bytes.", len(serialPacket), nTx)
-		}
-	}
-}
-
 // End link session between upstream server and downstream client.
-func (s *gateway) dropLink() {
-	if s.uStream != nil {
-		s.uStream.Close()
+func (g *gateway) dropLink() {
+	if g.uStream != nil {
+		g.uStream.Close()
 	}
-	if s.txBuff != nil {
-		close(s.txBuff)
-		s.txBuff = nil
+	if g.txBuff != nil {
+		close(g.txBuff)
+		g.txBuff = nil
 	}
-	s.state = Disconnected
+	g.state = Disconnected
 }
 
 // Stop activity and release downstream interface.
-func (s *gateway) dropServer() {
-	s.dropLink()
-	s.dStream.Close()
-	close(s.rxBuff)
-	s.state = TransportNotReady
+func (g *gateway) dropGateway() {
+	g.dropLink()
+	g.com.Close()
+	close(g.rxBuff)
+	g.state = TransportNotReady
 }

@@ -9,10 +9,9 @@ import (
 
 // Implementation of the Protocol Client.
 type client struct {
-	protocolSession                   // Connection session between Protocol Client & Server/Gateway.
-	com             protocolTransport // Connection to Protocol Server/Gateway.
-	userData_rx     bytes.Buffer
-	userData_tx     chan Packet
+	protocolTransport // Connection between Protocol Client & Server/Gateway.
+	userData_rx       bytes.Buffer
+	userData_tx       chan Packet
 }
 
 // Public Protocol Client API
@@ -32,9 +31,9 @@ func (c *client) Connect(IP *[4]byte, port uint16) int {
 	c.userData_tx = make(chan Packet, 10)
 
 	c.session.Add(3)
-	go c.rxSerial()
+	go c.rxSerial(nil)
 	go c.packetReader()
-	go c.txSerial()
+	go c.txSerial(nil)
 	//c.session.Wait()
 
 	p := IP[:]
@@ -109,58 +108,6 @@ func (c *client) Stop() {
 	}
 	// close(c.acknowledgeEvent)
 	c.state = Disconnected
-}
-
-// Receive from Protocol Server over Serial interface.
-func (c *client) rxSerial() {
-	defer c.session.Done()
-	rx := make([]byte, 512)
-	c.com.Flush()
-	for {
-		nRx, err := c.com.Read(rx)
-		if err != nil {
-			log.Printf("Error receiving from COM: %v\n", err)
-			// c.dropServer() what we need here? equivalent of dropping server: maybe just drop port
-			return
-		}
-		/*
-			logLock.Lock()
-			log.Println("Client RX:")
-			log.Println(rx[:nRx])
-			log.Println(string(rx[2:nRx]))
-			logLock.Unlock()
-		*/
-		for _, v := range rx[:nRx] {
-			c.rxBuff <- v
-		}
-	}
-}
-
-// Read from TX buffer and write out Serial interface.
-func (c *client) txSerial() {
-	defer c.session.Done()
-	for txPacket := range c.txBuff {
-		txPacket.length = byte(len(txPacket.payload) + 5)
-		txPacket.crc = txPacket.calcCrc()
-		serialPacket := txPacket.serialize()
-
-		nTx, err := c.com.Write(serialPacket)
-		if err != nil {
-			log.Printf("Error writing downstream: %v\n", err)
-			// c.dropServer()
-			return
-		}
-		/*
-			logLock.Lock()
-			log.Println("Client TX:")
-			log.Println(serialPacket)
-			log.Println(string(serialPacket[2:]))
-			logLock.Unlock()
-		*/
-		if nTx != len(serialPacket) {
-			log.Printf("TX mismatch. Want to send %v bytes. Sent: %v bytes.", len(serialPacket), nTx)
-		}
-	}
 }
 
 // Parse RX buffer for legitimate packets.

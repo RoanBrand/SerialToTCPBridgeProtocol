@@ -12,7 +12,6 @@ import (
 
 const PORT = 3541
 
-
 // This test setups the following:
 // [TCP Echo Server] <--> [Protocol Gateway] <--> [Fake Serial Wire] <--> [Protocol Client]
 // The Client then writes a single message to the Gateway, waits 1s, then reads any incoming data.
@@ -29,7 +28,8 @@ func TestEcho(t *testing.T) {
 	t.Log("Protocol Gateway started")
 
 	// start protocol client
-	endClient := client{com: &fakeTransportClientInterface{transport: serialTransport}}
+	endClient := client{}
+	endClient.com = &fakeTransportClientInterface{transport: serialTransport}
 	if res := endClient.Connect(&[4]byte{127, 0, 0, 1}, PORT); res != 1 {
 		t.Fatalf("Protocol client unable to connect to gateway: %d", res)
 	}
