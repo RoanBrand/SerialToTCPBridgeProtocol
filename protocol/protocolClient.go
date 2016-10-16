@@ -9,7 +9,7 @@ import (
 
 // Implementation of the Protocol Client.
 type client struct {
-	protocolSession                   // Connection session between Protocol Server/Gateway & Client.
+	protocolSession                   // Connection session between Protocol Client & Server/Gateway.
 	com             protocolTransport // Connection to Protocol Server/Gateway.
 	userData_rx     bytes.Buffer
 	userData_tx     chan Packet

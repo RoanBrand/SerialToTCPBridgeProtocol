@@ -9,21 +9,21 @@ import (
 	"log"
 )
 
-// A protocol server listening on a COM port.
-type comServer struct {
-	server
+// A Protocol Gateway listening on a COM port.
+type comGateway struct {
+	gateway
 	comConfig *serial.Config
 }
 
-func NewComServer(ComName string, ComBaudRate int) *comServer {
-	s := comServer{
+func NewComGateway(ComName string, ComBaudRate int) *comGateway {
+	s := comGateway{
 		comConfig: &serial.Config{Name: ComName, Baud: ComBaudRate},
 	}
 	return &s
 }
 
-// Start server on a COM port interface to service single protocol Client.
-func (com *comServer) ServeCOM() error {
+// Start Gateway on a COM port interface to service single protocol Client.
+func (com *comGateway) ServeCOM() error {
 	comPort, err := serial.OpenPort(com.comConfig)
 	if err != nil {
 		return err

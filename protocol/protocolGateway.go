@@ -9,15 +9,15 @@ import (
 	"time"
 )
 
-// Implementation of the Protocol Server.
-type server struct {
-	protocolSession                   // Connection session between protocol Server/Gateway & Client.
+// Implementation of the Protocol Gateway.
+type gateway struct {
+	protocolSession                   // Connection session between Protocol Gateway & Client.
 	dStream         protocolTransport // Downstream connection to Protocol Client.
 	uStream         net.Conn          // Upstream connection to tcp Server.
 }
 
 // Initialize downstream RX and listen for a protocol Client.
-func (s *server) Listen(ds protocolTransport) {
+func (s *gateway) Listen(ds protocolTransport) {
 	s.dStream = ds
 	s.rxBuff = make(chan byte, 512)
 	s.acknowledgeEvent = make(chan bool)
@@ -30,7 +30,7 @@ func (s *server) Listen(ds protocolTransport) {
 }
 
 // Receive from downstream and write to RX buffer.
-func (s *server) rxDownstream() {
+func (s *gateway) rxDownstream() {
 	defer s.session.Done()
 	rx := make([]byte, 512)
 	s.dStream.Flush()
@@ -55,7 +55,7 @@ func (s *server) rxDownstream() {
 }
 
 // Parse RX buffer for legitimate packets.
-func (s *server) packetReader() {
+func (s *gateway) packetReader() {
 	defer s.session.Done()
 	timeouts := 0
 PACKET_RX_LOOP:
@@ -132,7 +132,7 @@ PACKET_RX_LOOP:
 }
 
 // Packet RX done. Handle it.
-func (s *server) handleRxPacket(packet *Packet) {
+func (s *gateway) handleRxPacket(packet *Packet) {
 	var rxSeqFlag bool = (packet.command & 0x80) > 0
 	switch packet.command & 0x7F {
 	case publish:
@@ -207,7 +207,7 @@ func (s *server) handleRxPacket(packet *Packet) {
 // Publish data downstream received from upstream tcp server.
 // We need to get an Ack before sending the next publish packet.
 // Resend same publish packet after timeout, and kill link after 5 retries.
-func (s *server) packetSender() {
+func (s *gateway) packetSender() {
 	defer s.session.Done()
 	sequenceTxFlag := false
 	retries := 0
@@ -250,7 +250,7 @@ func (s *server) packetSender() {
 }
 
 // Read from TX buffer and write out downstream.
-func (s *server) txDownstream() {
+func (s *gateway) txDownstream() {
 	defer s.session.Done()
 	for txPacket := range s.txBuff {
 		txPacket.length = byte(len(txPacket.payload) + 5)
@@ -277,7 +277,7 @@ func (s *server) txDownstream() {
 }
 
 // End link session between upstream server and downstream client.
-func (s *server) dropLink() {
+func (s *gateway) dropLink() {
 	if s.uStream != nil {
 		s.uStream.Close()
 	}
@@ -289,7 +289,7 @@ func (s *server) dropLink() {
 }
 
 // Stop activity and release downstream interface.
-func (s *server) dropServer() {
+func (s *gateway) dropServer() {
 	s.dropLink()
 	s.dStream.Close()
 	close(s.rxBuff)

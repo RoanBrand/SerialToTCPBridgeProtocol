@@ -24,7 +24,7 @@ func TestEcho(t *testing.T) {
 
 	// start protocol gateway server
 	serialTransport := NewFakeTransport()
-	gateway := server{}
+	gateway := gateway{}
 	go gateway.Listen(&fakeTransportServerInterface{transport: serialTransport})
 	t.Log("Protocol Gateway started")
 
