@@ -2,7 +2,6 @@ package protocol
 
 import (
 	"bytes"
-	"encoding/binary"
 	"log"
 	"time"
 )
@@ -32,7 +31,7 @@ func (c *client) Connect(IP *[4]byte, port uint16) int {
 
 	c.session.Add(3)
 	go c.rxSerial(nil)
-	go c.packetReader()
+	go c.packetParser(c.handleRxPacket, c.Stop)
 	go c.txSerial(nil)
 	//c.session.Wait()
 
@@ -108,83 +107,6 @@ func (c *client) Stop() {
 	}
 	// close(c.acknowledgeEvent)
 	c.state = Disconnected
-}
-
-// Parse RX buffer for legitimate packets.
-func (c *client) packetReader() {
-	defer c.session.Done()
-	timeouts := 0
-PACKET_RX_LOOP:
-	for {
-		if timeouts >= 5 {
-			if c.state == Connected {
-				log.Println("COM timeout. Disconnecting from server")
-				c.txBuff <- Packet{command: disconnect}
-				c.Stop()
-				return
-			}
-			timeouts = 0
-		}
-
-		p := Packet{}
-		var ok bool
-
-		// Length byte
-		p.length, ok = <-c.rxBuff
-		if !ok {
-			return
-		}
-
-		// Command byte
-		select {
-		case p.command, ok = <-c.rxBuff:
-			if !ok {
-				return
-			}
-		case <-time.After(time.Millisecond * 100):
-			timeouts++
-			continue PACKET_RX_LOOP // discard
-		}
-
-		// Payload
-		for i := 0; i < int(p.length)-5; i++ {
-			select {
-			case payloadByte, ok := <-c.rxBuff:
-				if !ok {
-					return
-				}
-				p.payload = append(p.payload, payloadByte)
-			case <-time.After(time.Millisecond * 100):
-				timeouts++
-				continue PACKET_RX_LOOP
-			}
-		}
-
-		// CRC32
-		rxCrc := make([]byte, 0, 4)
-		for i := 0; i < 4; i++ {
-			select {
-			case crcByte, ok := <-c.rxBuff:
-				if !ok {
-					return
-				}
-				rxCrc = append(rxCrc, crcByte)
-			case <-time.After(time.Millisecond * 100):
-				timeouts++
-				continue PACKET_RX_LOOP
-			}
-		}
-		p.crc = binary.LittleEndian.Uint32(rxCrc)
-
-		// Integrity Checking
-		if p.calcCrc() != p.crc {
-			log.Println("Client packet RX CRCFAIL")
-			timeouts++
-			continue PACKET_RX_LOOP
-		}
-		timeouts = 0
-		c.handleRxPacket(&p)
-	}
 }
 
 // Packet RX done. Handle it.
