@@ -64,3 +64,6 @@ const (
 	Disconnected
 	Connected
 )
+
+// Used for debug logging
+var logLock sync.RWMutex

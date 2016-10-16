@@ -15,14 +15,9 @@ type client struct {
 	userData_tx     chan Packet
 }
 
-/*
- * SUCCESS 1
- * TIMED_OUT -1
- * INVALID_SERVER -2
- * TRUNCATED -3
- * INVALID_RESPONSE -4
- */
-func (c *client) Connect(IP []byte, port uint16) int {
+// Public Protocol Client API
+// Meant to match Arduino client API for now. Not Go idiomatic.
+func (c *client) Connect(IP *[4]byte, port uint16) int {
 	if c.com == nil {
 		return 0
 	}
@@ -42,9 +37,14 @@ func (c *client) Connect(IP []byte, port uint16) int {
 	go c.txSerial()
 	//c.session.Wait()
 
-	p := IP
+	p := IP[:]
 	p = append(p, byte(port&0x00FF), byte((port>>8)&0x00FF))
 	c.txBuff <- Packet{command: connect, payload: p}
+	/*
+		logLock.Lock()
+		log.Println("Client: Connect request sent to", *IP, port)
+		logLock.Unlock()
+	*/
 
 	select {
 	case reply, ok := <-c.acknowledgeEvent:
@@ -57,6 +57,13 @@ func (c *client) Connect(IP []byte, port uint16) int {
 	}
 
 	return -4
+	/*
+	 * SUCCESS 1
+	 * TIMED_OUT -1
+	 * INVALID_SERVER -2
+	 * TRUNCATED -3
+	 * INVALID_RESPONSE -4
+	 */
 }
 
 func (c *client) Connected() bool {
@@ -68,33 +75,23 @@ func (c *client) Available() int {
 }
 
 func (c *client) Read() int {
-	if c.Available() > 0 {
-		b, err := c.userData_rx.ReadByte()
-		if err != nil {
-			c.Stop()
-		}
-		return int(b)
+	if c.Available() == 0 {
+		return -1
 	}
-	return 0
+	b, err := c.userData_rx.ReadByte()
+	if err != nil {
+		c.Stop()
+	}
+	return int(b)
 }
 
 func (c *client) Write(payload []byte, pLength int) int {
-/*
-		paySlice := make([]byte, pLength)
-		for i := 0; i < pLength; i++ {
-			paySlice[i] = payload[i]
-		}
-*/
 	if c.state != Connected {
 		return 0
 	}
 
-	select {
-	case c.userData_tx <- Packet{command: publish, payload: payload[:pLength]}:
-		return pLength
-	default:
-		return 0
-	}
+	c.userData_tx <- Packet{command: publish, payload: payload[:pLength]}
+	return pLength
 }
 
 func (c *client) Flush() {
@@ -110,14 +107,14 @@ func (c *client) Stop() {
 		close(c.rxBuff)
 		c.rxBuff = nil
 	}
-	//close(c.acknowledgeEvent)
+	// close(c.acknowledgeEvent)
 	c.state = Disconnected
 }
 
 // Receive from Protocol Server over Serial interface.
 func (c *client) rxSerial() {
 	defer c.session.Done()
-	rx := make([]byte, 128)
+	rx := make([]byte, 512)
 	c.com.Flush()
 	for {
 		nRx, err := c.com.Read(rx)
@@ -126,6 +123,13 @@ func (c *client) rxSerial() {
 			// c.dropServer() what we need here? equivalent of dropping server: maybe just drop port
 			return
 		}
+		/*
+			logLock.Lock()
+			log.Println("Client RX:")
+			log.Println(rx[:nRx])
+			log.Println(string(rx[2:nRx]))
+			logLock.Unlock()
+		*/
 		for _, v := range rx[:nRx] {
 			c.rxBuff <- v
 		}
@@ -146,7 +150,13 @@ func (c *client) txSerial() {
 			// c.dropServer()
 			return
 		}
-
+		/*
+			logLock.Lock()
+			log.Println("Client TX:")
+			log.Println(serialPacket)
+			log.Println(string(serialPacket[2:]))
+			logLock.Unlock()
+		*/
 		if nTx != len(serialPacket) {
 			log.Printf("TX mismatch. Want to send %v bytes. Sent: %v bytes.", len(serialPacket), nTx)
 		}
@@ -221,7 +231,7 @@ PACKET_RX_LOOP:
 
 		// Integrity Checking
 		if p.calcCrc() != p.crc {
-			log.Println("COM packet RX CRCFAIL")
+			log.Println("Client packet RX CRCFAIL")
 			timeouts++
 			continue PACKET_RX_LOOP
 		}
@@ -250,7 +260,6 @@ func (c *client) handleRxPacket(packet *Packet) {
 			c.acknowledgeEvent <- rxSeqFlag
 		}
 	case connack:
-		log.Println("client got connack!!!!")
 		if c.state != Disconnected {
 			return
 		}
@@ -259,6 +268,7 @@ func (c *client) handleRxPacket(packet *Packet) {
 		c.acknowledgeEvent <- true
 		c.session.Add(1)
 		go c.packetSender()
+		// log.Println("Client: Connected")
 	case disconnect:
 		if c.state == Connected {
 			log.Println("Client wants to disconnect. Ending link session")
@@ -278,9 +288,9 @@ func (c *client) packetSender() {
 		p, ok := <-c.userData_tx
 		if !ok {
 			if c.state == Connected {
-				//log.Printf("Error receiving upstream: %v. Disconnecting client\n", err)
+				// log.Printf("Error receiving upstream: %v. Disconnecting client\n", err)
 				c.txBuff <- Packet{command: disconnect}
-				//c.dropLink()
+				// c.dropLink()
 			}
 			return
 		}

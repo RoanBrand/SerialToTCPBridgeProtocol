@@ -11,9 +11,9 @@ import (
 
 // Implementation of the Protocol Server.
 type server struct {
-	uStream net.Conn          // Upstream connection to tcp Server.
-	dStream protocolTransport // Downstream connection to protocol Client.
-	protocolSession           // Connection session between protocol Server/Gateway & Client.
+	protocolSession                   // Connection session between protocol Server/Gateway & Client.
+	dStream         protocolTransport // Downstream connection to Protocol Client.
+	uStream         net.Conn          // Upstream connection to tcp Server.
 }
 
 // Initialize downstream RX and listen for a protocol Client.
@@ -32,7 +32,7 @@ func (s *server) Listen(ds protocolTransport) {
 // Receive from downstream and write to RX buffer.
 func (s *server) rxDownstream() {
 	defer s.session.Done()
-	rx := make([]byte, 128)
+	rx := make([]byte, 512)
 	s.dStream.Flush()
 	for {
 		nRx, err := s.dStream.Read(rx)
@@ -41,6 +41,13 @@ func (s *server) rxDownstream() {
 			s.dropServer()
 			return
 		}
+		/*
+			logLock.Lock()
+			log.Println("Gateway RX:")
+			log.Println(rx[:nRx])
+			log.Println(string(rx[2:nRx]))
+			logLock.Unlock()
+		*/
 		for _, v := range rx[:nRx] {
 			s.rxBuff <- v
 		}
@@ -174,10 +181,10 @@ func (s *server) handleRxPacket(packet *Packet) {
 		go s.txDownstream()
 
 		// Open connection to upstream server on behalf of client
-		log.Printf("Dialing to: %v\n", dstStr)
+		// log.Printf("Gateway: Connect request from client. Dialing to: %v\n", dstStr)
 		var err error
 		if s.uStream, err = net.Dial("tcp", dstStr); err != nil { // TODO: add timeout
-			log.Printf("Failed to connect to: %v\n", dstStr)
+			log.Printf("Gateway: Failed to connect to: %v\n", dstStr)
 			s.txBuff <- Packet{command: disconnect} // TODO: payload to contain error or timeout
 			s.dropLink()
 			return
@@ -186,7 +193,7 @@ func (s *server) handleRxPacket(packet *Packet) {
 		// Start link session
 		s.session.Add(1)
 		go s.packetSender()
-		log.Printf("Connected to %v\n", dstStr)
+		// log.Printf("Gateway: Connected to %v\n", dstStr)
 		s.state = Connected
 		s.txBuff <- Packet{command: connack}
 	case disconnect:
@@ -256,7 +263,13 @@ func (s *server) txDownstream() {
 			s.dropServer()
 			return
 		}
-
+		/*
+			logLock.Lock()
+			log.Println("Gateway TX:")
+			log.Println(serialPacket)
+			log.Println(string(serialPacket[2:]))
+			logLock.Unlock()
+		*/
 		if nTx != len(serialPacket) {
 			log.Printf("TX mismatch. Want to send %v bytes. Sent: %v bytes.", len(serialPacket), nTx)
 		}
