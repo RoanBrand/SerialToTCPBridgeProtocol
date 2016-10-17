@@ -42,28 +42,33 @@ func TestEcho(t *testing.T) {
 		we expext the gateway to send the same message back to the client.`)
 	messageLength := len(message)
 
-	nWritten := endClient.Write(message, messageLength)
-	if nWritten != messageLength {
-		t.Fatalf("Client write fail: Expected to send %v but sent %v instead\n", messageLength, nWritten)
-	}
-	t.Log("Client sent message to Gateway")
-
-	time.Sleep(time.Second)
-
-	t.Log("Client reading response")
-	in := []byte{}
-	for {
-		inByte := endClient.Read()
-		if inByte == -1 { // -1 if nothing to read
-			break
+	for i := 1; i <= 5; i++ {
+		nWritten := endClient.Write(message, messageLength)
+		if nWritten != messageLength {
+			t.Fatalf("Client write fail: Expected to send %v but sent %v instead\n", messageLength, nWritten)
 		}
-		in = append(in, byte(inByte))
-	}
+		t.Logf("Client sent message #%d to Gateway. Now waiting for response.\n", i)
 
-	if !bytes.Equal(in, message) {
-		t.Fatalf("Sent message:(%v) is not equal to received one:(%v)\n", string(message), string(in))
+		startTime := time.Now()
+		in := []byte{}
+		for {
+			if time.Now().Sub(startTime) > time.Millisecond*500 {
+				if !bytes.Equal(in, message) {
+					t.Fatalf("Client timed out waiting for correct response. Received so far: %s", string(in))
+				}
+			}
+			inByte := endClient.Read()
+			if inByte == -1 {
+				// -1 if nothing to read
+				continue
+			}
+			in = append(in, byte(inByte))
+			if bytes.Equal(in, message) {
+				break
+			}
+		}
+		t.Logf("Client received message #%d. Successful.\n", i)
 	}
-	t.Log("Client RX message equivalent to TX message. Successful.")
 }
 
 func startTCPServer(t *testing.T) {
