@@ -24,12 +24,12 @@ func TestEcho(t *testing.T) {
 	// start protocol gateway server
 	serialTransport := NewFakeTransport()
 	gateway := gateway{}
-	go gateway.Listen(&fakeTransportServerInterface{fakeTransportInterface{serialTransport}})
+	go gateway.Listen(&fakeTransportServerInterface{serialTransport})
 	t.Log("Protocol Gateway started")
 
 	// start protocol client
 	endClient := client{}
-	endClient.com = &fakeTransportClientInterface{fakeTransportInterface{serialTransport}}
+	endClient.com = &fakeTransportClientInterface{serialTransport}
 	if res := endClient.Connect(&[4]byte{127, 0, 0, 1}, PORT); res != 1 {
 		t.Fatalf("Protocol client unable to connect to gateway: %d", res)
 	}
@@ -126,45 +126,40 @@ func NewFakeTransport() *fakeTransport {
 	return t
 }
 
-// Interface for Protocol Server/Gateway/Client to the fake transport.
-type fakeTransportInterface struct {
-	transport *fakeTransport
-}
-
-func (ci fakeTransportInterface) Close() error {
+func (ci fakeTransport) Close() error {
 	return nil
 }
 
-func (ci fakeTransportInterface) Flush() error {
+func (ci fakeTransport) Flush() error {
 	return nil
 }
 
 // Interface for Client to the fake transport. (On the one side)
 type fakeTransportClientInterface struct {
-	fakeTransportInterface
+	*fakeTransport
 }
 
 func (ci *fakeTransportClientInterface) Read(p []byte) (n int, err error) {
-	n, err = ci.transport.Buf2.Read(p)
+	n, err = ci.Buf2.Read(p)
 	return
 }
 
 func (ci *fakeTransportClientInterface) Write(p []byte) (n int, err error) {
-	n, err = ci.transport.Buf1.Write(p)
+	n, err = ci.Buf1.Write(p)
 	return
 }
 
 // Interface for Server/Gateway to the fake transport. (On the other side)
 type fakeTransportServerInterface struct {
-	fakeTransportInterface
+	*fakeTransport
 }
 
 func (si *fakeTransportServerInterface) Read(p []byte) (n int, err error) {
-	n, err = si.transport.Buf1.Read(p)
+	n, err = si.Buf1.Read(p)
 	return
 }
 
 func (si *fakeTransportServerInterface) Write(p []byte) (n int, err error) {
-	n, err = si.transport.Buf2.Write(p)
+	n, err = si.Buf2.Write(p)
 	return
 }
