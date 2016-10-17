@@ -24,12 +24,12 @@ func TestEcho(t *testing.T) {
 	// start protocol gateway server
 	serialTransport := NewFakeTransport()
 	gateway := gateway{}
-	go gateway.Listen(&fakeTransportServerInterface{transport: serialTransport})
+	go gateway.Listen(&fakeTransportServerInterface{fakeTransportInterface{serialTransport}})
 	t.Log("Protocol Gateway started")
 
 	// start protocol client
 	endClient := client{}
-	endClient.com = &fakeTransportClientInterface{transport: serialTransport}
+	endClient.com = &fakeTransportClientInterface{fakeTransportInterface{serialTransport}}
 	if res := endClient.Connect(&[4]byte{127, 0, 0, 1}, PORT); res != 1 {
 		t.Fatalf("Protocol client unable to connect to gateway: %d", res)
 	}
@@ -115,6 +115,7 @@ func handleConn(t *testing.T, client net.Conn) {
 	}
 }
 
+// Fake 2 way network connection.
 type fakeTransport struct {
 	Buf1 *goBuffers.BlockingReadWriter
 	Buf2 *goBuffers.BlockingReadWriter
@@ -125,8 +126,22 @@ func NewFakeTransport() *fakeTransport {
 	return t
 }
 
-type fakeTransportClientInterface struct {
+// Interface for Protocol Server/Gateway/Client to the fake transport.
+type fakeTransportInterface struct {
 	transport *fakeTransport
+}
+
+func (ci fakeTransportInterface) Close() error {
+	return nil
+}
+
+func (ci fakeTransportInterface) Flush() error {
+	return nil
+}
+
+// Interface for Client to the fake transport. (On the one side)
+type fakeTransportClientInterface struct {
+	fakeTransportInterface
 }
 
 func (ci *fakeTransportClientInterface) Read(p []byte) (n int, err error) {
@@ -139,16 +154,9 @@ func (ci *fakeTransportClientInterface) Write(p []byte) (n int, err error) {
 	return
 }
 
-func (ci fakeTransportClientInterface) Close() error {
-	return nil
-}
-
-func (ci fakeTransportClientInterface) Flush() error {
-	return nil
-}
-
+// Interface for Server/Gateway to the fake transport. (On the other side)
 type fakeTransportServerInterface struct {
-	transport *fakeTransport
+	fakeTransportInterface
 }
 
 func (si *fakeTransportServerInterface) Read(p []byte) (n int, err error) {
@@ -159,12 +167,4 @@ func (si *fakeTransportServerInterface) Read(p []byte) (n int, err error) {
 func (si *fakeTransportServerInterface) Write(p []byte) (n int, err error) {
 	n, err = si.transport.Buf2.Write(p)
 	return
-}
-
-func (si fakeTransportServerInterface) Close() error {
-	return nil
-}
-
-func (si fakeTransportServerInterface) Flush() error {
-	return nil
 }
