@@ -52,9 +52,9 @@ func TestEcho(t *testing.T) {
 		startTime := time.Now()
 		in := []byte{}
 		for {
-			if time.Now().Sub(startTime) > time.Millisecond*500 {
+			if time.Now().Sub(startTime) > time.Second {
 				if !bytes.Equal(in, message) {
-					t.Fatalf("Client timed out waiting for correct response. Received so far: %s", string(in))
+					t.Fatalf("Client timed out waiting for correct response. Received so far:\n%s\n%v", string(in), in)
 				}
 			}
 			inByte := endClient.Read()

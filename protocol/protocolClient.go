@@ -4,14 +4,16 @@ import (
 	"bytes"
 	"errors"
 	"log"
+	"sync"
 	"time"
 )
 
 // Implementation of the Protocol Client.
 type client struct {
 	protocolTransport // Connection between Protocol Client & Server/Gateway.
-	userData_rx       bytes.Buffer
-	userData_tx       chan Packet
+	rxBuffer          bytes.Buffer
+	rxBufLock         sync.RWMutex
+	txBuffer          chan Packet
 }
 
 // Public Protocol Client API
@@ -28,7 +30,7 @@ func (c *client) Connect(IP *[4]byte, port uint16) int {
 	c.txBuff = make(chan Packet, 2)
 	c.expectedRxSeqFlag = false
 
-	c.userData_tx = make(chan Packet, 10)
+	c.txBuffer = make(chan Packet, 10)
 
 	c.session.Add(3)
 	go c.rxSerial(nil)
@@ -39,11 +41,6 @@ func (c *client) Connect(IP *[4]byte, port uint16) int {
 	p := IP[:]
 	p = append(p, byte(port&0x00FF), byte((port>>8)&0x00FF))
 	c.txBuff <- Packet{command: connect, payload: p}
-	/*
-		logLock.Lock()
-		log.Println("Client: Connect request sent to", *IP, port)
-		logLock.Unlock()
-	*/
 
 	select {
 	case reply, ok := <-c.acknowledgeEvent:
@@ -70,14 +67,18 @@ func (c *client) Connected() bool {
 }
 
 func (c *client) Available() int {
-	return c.userData_rx.Len()
+	c.rxBufLock.Lock()
+	defer c.rxBufLock.Unlock()
+	return c.rxBuffer.Len()
 }
 
 func (c *client) Read() int {
 	if c.Available() == 0 {
 		return -1
 	}
-	b, err := c.userData_rx.ReadByte()
+	c.rxBufLock.Lock()
+	b, err := c.rxBuffer.ReadByte()
+	c.rxBufLock.Unlock()
 	if err != nil {
 		c.Stop()
 	}
@@ -89,12 +90,12 @@ func (c *client) Write(payload []byte, pLength int) int {
 		return 0
 	}
 
-	c.userData_tx <- Packet{command: publish, payload: payload[:pLength]}
+	c.txBuffer <- Packet{command: publish, payload: payload[:pLength]}
 	return pLength
 }
 
 func (c *client) Flush() {
-	c.userData_rx.Reset()
+	c.rxBuffer.Reset()
 }
 
 func (c *client) Stop() {
@@ -123,7 +124,9 @@ func (c *client) handleRxPacket(packet *Packet) {
 		c.txBuff <- Packet{command: acknowledge | (packet.command & 0x80)}
 		if rxSeqFlag == c.expectedRxSeqFlag {
 			c.expectedRxSeqFlag = !c.expectedRxSeqFlag
-			c.userData_rx.Write(packet.payload)
+			c.rxBufLock.Lock()
+			c.rxBuffer.Write(packet.payload)
+			c.rxBufLock.Unlock()
 		}
 	case acknowledge:
 		if c.state == Connected {
@@ -138,7 +141,7 @@ func (c *client) handleRxPacket(packet *Packet) {
 		c.acknowledgeEvent <- true
 		c.session.Add(1)
 		go c.packetSender(func() (p Packet, err error) {
-			p, ok := <-c.userData_tx
+			p, ok := <-c.txBuffer
 			if ok {
 				err = nil
 			} else {
@@ -146,7 +149,6 @@ func (c *client) handleRxPacket(packet *Packet) {
 			}
 			return
 		}, c.Stop)
-		// log.Println("Client: Connected")
 	case disconnect:
 		if c.state == Connected {
 			log.Println("Client wants to disconnect. Ending link session")

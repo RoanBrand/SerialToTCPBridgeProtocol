@@ -82,7 +82,6 @@ func (g *gateway) handleRxPacket(packet *Packet) {
 			p = Packet{command: publish, payload: tx[:n]}
 			return
 		}, g.dropLink)
-		// log.Printf("Gateway: Connected to %v\n", dstStr)
 		g.state = Connected
 		g.txBuff <- Packet{command: connack}
 	case disconnect:
