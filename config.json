@@ -1,0 +1,9 @@
+{
+  "gateways": [
+    {
+      "gateway name": "Gateway for Arduino Uno",
+      "comport name": "COM4",
+      "baud rate": 115200
+    }
+  ]
+}

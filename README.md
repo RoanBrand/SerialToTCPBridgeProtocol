@@ -11,13 +11,15 @@ Included in this repo is an implementation of the Protocol **Gateway** and **Cli
 The following clients are also available:
 
 | Client                                                                                         | Platform | Language |
-| ---------------------------------------------------------------------------------------------- |:--------:| --------:|
+| ---------------------------------------------------------------------------------------------- |:--------:|:--------:|
 | [ArduinoSerialToTCPBridgeClient](https://github.com/RoanBrand/ArduinoSerialToTCPBridgeClient)  | Arduino  | C++      |
 | [STM32SerialToTCPBridgeClient](https://github.com/RoanBrand/STM32SerialToTCPBridgeClient)      | STM32    | C        |
 
 #### Use
-- Open a terminal, then run `go get -u github.com/RoanBrand/SerialToTCPBridgeProtocol`.
-- Run the binary in `$GOPATH/bin`.
+- Install [Go](https://golang.org/) and set your `$GOPATH`.
+- Open a terminal, then run `go get -u github.com/RoanBrand/SerialToTCPBridgeProtocol`. This will fetch dependencies and build the gateway service.
+- Copy the *config.json* example to **$GOPATH/bin** next to the binary and set it according to your configuration.
+- Run the binary.
 
 #### Details
 - The protocol provides the app an in order, duplicates free and error checked byte stream by adding a CRC32 and simple retry mechanism. See [this](https://en.wikibooks.org/wiki/Serial_Programming/Error_Correction_Methods) for background.
@@ -32,7 +34,7 @@ The following clients are also available:
  - Run `go test -v` in the terminal.
 
 #### Future plans
-- Add config. Turn into OS service. 
 - Add ping option to periodically test serial line and drop upstream connection if timeout.
 - Multiple connections per client to servers.
 - Capability to scan system and listen on all found COM ports for clients.
+- Turn into OS service.
