@@ -79,7 +79,13 @@ func (g *gateway) handleRxPacket(packet *Packet) {
 		go g.packetSender(func() (p Packet, err error) {
 			// Publish data downstream received from upstream tcp server.
 			n, err := g.uStream.Read(tx)
-			p = Packet{command: publish, payload: tx[:n]}
+			if err != nil {
+				if err.Error() == "EOF" {
+					log.Println("Upstream TCP server closed connection unexpectedly")
+				}
+			} else {
+				p = Packet{command: publish, payload: tx[:n]}
+			}
 			return
 		}, g.dropLink)
 		g.state = Connected

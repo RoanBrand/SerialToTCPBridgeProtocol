@@ -7,7 +7,8 @@ import (
 )
 
 const (
-	COMPortName = "COM3"
+	COMPortName = "COM4" // Windows
+	//COMPortName = "/dev/serial0" // Linux
 	COMBaudRate = 115200
 )
 
