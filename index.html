@@ -39,12 +39,13 @@
 
         <p>An error tolerant serial UART to TCP connection, raw data bridge.</p>
 
-        <p>PC side service written in Go that listens on COM ports for serial clients.
-            This is meant to bridge the gap between tcp connections and serial devices using UART/RS-232/Virtual COM
-            over USB, etc.
-            Clients implementing the protocol have a tcp like api that they can use to make connections to real servers.
-            The goal of the project is to have the means to connect the simplest and cheapest devices to the internet,
-            albeit indirectly. </p>
+        <p>
+            Host side gateway service written in Go that listens on COM ports for serial clients.
+            This is meant to bridge the gap between tcp connections and serial devices using UART/RS-232/Virtual COM over USB, etc.
+            Clients implementing the protocol client have a tcp like api that they can use to make connections to real servers.
+            The goal of the project is to have the means to connect the simplest and cheapest devices to the internet, albeit indirectly.
+            For now, I use this to connect microcontrollers on development boards to servers running on localhost through the Virtual COM port over USB, without requiring any Ethernet/Wi-Fi hardware.
+        </p>
 
         <hr>
 
@@ -60,15 +61,18 @@
         </h4>
 
         <ul>
-            <li>The Go service opens a real TCP connection to a set destination on behalf of the serial client.</li>
             <li>The protocol provides the app an in order, duplicates free and error checked byte stream by adding a
                 CRC32 and simple retry mechanism. See <a
                         href="https://en.wikibooks.org/wiki/Serial_Programming/Error_Correction_Methods">this</a> for
                 background.
             </li>
-            <li>The service forwards traffic bi-directionally, as long as tcp connection is open and serial line is
-                good.
+            <li>
+                The <i>Protocol Gateway</i> opens a real TCP connection to a set destination on behalf of the <i>Protocol Client</i>.
             </li>
+            <li>
+                The <i>Protocol Client</i> connects to the <i>Protocol Gateway</i> over a serial-like connection, which can possibly corrupt data.
+            </li>
+            <li>The gateway forwards traffic bi-directionally, as long as tcp connection is open and serial line is good.</li>
         </ul>
 
         <h4>
@@ -77,17 +81,308 @@
             plans</h4>
 
         <ul>
-            <li>Add config. Turn into os service.</li>
-            <li>Sort out timeout bugs</li>
-            <li>Add ping to periodically test serial line</li>
-            <li>Multiple connections for clients to servers</li>
-            <li>Unit tests</li>
-            <li>PC side service to listen to all COM ports and concurrently spawn new connections for clients</li>
-            <li>Create a Arduino lib/client that extends the <a
-                    href="https://www.arduino.cc/en/Reference/ClientConstructor">Arduino Client class</a> so that
-                libraries for existing Ethernet/Wifi shields can theoretically work.
-            </li>
+            <li>Add ping option to periodically test serial line and drop upstream connection if timeout</li>
+            <li>Multiple connections per client to servers</li>
+            <li>Capability to scan system and listen on all found COM ports for clients</li>
+            <li>Turn into OS service</li>
         </ul>
+
+        <h2>Protocol Packet Format</h2>
+
+        <h3>Structure of packet</h3>
+
+        <table style="border: 2px solid">
+            <tr>
+                <td><strong>Byte</strong></td>
+                <td style="border: 2px solid">0</td>
+                <td style="border: 2px solid">1</td>
+                <td style="border: 2px solid">2 - (n-5)</td>
+                <td style="border: 2px solid">(n-4) - (n-1)</td>
+            </tr>
+            <tr style="border: 2px solid">
+                <td><strong>Part</strong></td>
+                <td style="border: 2px solid">Length</td>
+                <td style="border: 2px solid">Command</td>
+                <td style="border: 2px solid">[Payload]</td>
+                <td style="border: 2px solid">CRC32</td>
+            </tr>
+
+        </table>
+
+        <p>
+            Every protocol packet of n bytes uses the scheme above, with the <strong>Payload</strong> part only present in certain packet types.
+        </p>
+
+        <h4>Length</h4>
+
+        <p>
+            The first byte of every packet denotes the length in bytes for the rest of the packet that follows.
+            It is an 8-bit unsigned value that that has a maximum of 255.
+            Thus the maximum possible packet size is n = 256, with a <strong>Length</strong> value of 255.
+            The minimum packet size is n = 6 for packets that have no payload.
+        </p>
+
+        <h4>Command</h4>
+
+        <table style="border: 2px solid">
+            <tr>
+                <td><strong>Bit</strong></td>
+                <td style="border: 2px solid">7</td>
+                <td style="border: 2px solid">6</td>
+                <td style="border: 2px solid">5</td>
+                <td style="border: 2px solid">4</td>
+                <td style="border: 2px solid">3</td>
+                <td style="border: 2px solid">2</td>
+                <td style="border: 2px solid">1</td>
+                <td style="border: 2px solid">0</td>
+            </tr>
+            <tr style="border: 2px solid">
+                <td><strong>Part</strong></td>
+                <td style="border: 2px solid" colspan="4">Command Flags</td>
+                <td style="border: 2px solid" colspan="4">Command Header</td>
+            </tr>
+        </table>
+
+        <p>
+            The second byte of every packet denotes the packet type and the instruction for the protocol.
+            The receiver of a packet will process it and execute an action based on the value of <strong>Command</strong>.
+            The byte is split into two nibbles with the lower 4 bits set to one of the protocol command headers,
+            and the higher 4 bits reserved as flags for each header type to add meta-information to the command.
+        </p>
+
+        <p>
+            The protocol command headers are enumerated unsigned integer values:
+        </p>
+
+        <ul>
+            <li>0: <strong>Connect</strong></li>
+            <li>1: <strong>Connack</strong></li>
+            <li>2: <strong>Disconnect</strong></li>
+            <li>3: <strong>Publish</strong></li>
+            <li>4: <strong>Acknowledge</strong></li>
+            <li>5-15: Reserved</li>
+        </ul>
+
+        <h4>Payload</h4>
+
+        <p>
+            The payload is a number of bytes that add data to the packet for use by the protocol.
+            It is only present in some packets and has a maximum size of 250 bytes due to the total packet max of 256.
+        </p>
+
+        <h4>CRC32</h4>
+
+        <p>
+            The last 4 bytes of every packet is the calculated CRC32 hash value of the entire packet, excluding the CRC itself of course.
+            This is used by the receiver for verifying the integrity of the packet and any user data it might carry.
+        </p>
+
+        <hr>
+
+        <h3>Packet Command Types</h3>
+
+        <h4>Connect</h4>
+
+        <table style="border: 2px solid">
+            <tr>
+                <td><strong>Bit</strong></td>
+                <td style="border: 2px solid">7</td>
+                <td style="border: 2px solid">6</td>
+                <td style="border: 2px solid">5</td>
+                <td style="border: 2px solid">4</td>
+                <td style="border: 2px solid">3</td>
+                <td style="border: 2px solid">2</td>
+                <td style="border: 2px solid">1</td>
+                <td style="border: 2px solid">0</td>
+            </tr>
+            <tr style="border: 2px solid">
+                <td><strong>Value</strong></td>
+                <td style="border: 2px solid">Dst Type</td>
+                <td style="border: 2px solid">x</td>
+                <td style="border: 2px solid">x</td>
+                <td style="border: 2px solid">x</td>
+                <td style="border: 2px solid">0</td>
+                <td style="border: 2px solid">0</td>
+                <td style="border: 2px solid">0</td>
+                <td style="border: 2px solid">0</td>
+            </tr>
+        </table>
+
+        <p>
+            The <strong>Connect</strong> packet is sent from a <i>Protocol Client</i> to a <i>Protocol Gateway</i> to open up a new connection.
+            Upon receiving the <i>Protocol Gateway</i> attempts to open a TCP connection using the destination specified in the payload of the packet.
+        </p>
+
+        <p>
+            The <i>Destination Type</i> flag at bit 7 specifies the nature of the destination address in the payload:
+        </p>
+
+        <ul>
+            <li>0: The payload is a 4-octet IPv4 address followed by a 2-byte port number</li>
+            <li>1: The payload is a utf-8 hostname string followed by a 2-byte port number</li>
+        </ul>
+
+        <h4>Connack</h4>
+
+        <table style="border: 2px solid">
+            <tr>
+                <td><strong>Bit</strong></td>
+                <td style="border: 2px solid">7</td>
+                <td style="border: 2px solid">6</td>
+                <td style="border: 2px solid">5</td>
+                <td style="border: 2px solid">4</td>
+                <td style="border: 2px solid">3</td>
+                <td style="border: 2px solid">2</td>
+                <td style="border: 2px solid">1</td>
+                <td style="border: 2px solid">0</td>
+            </tr>
+            <tr style="border: 2px solid">
+                <td><strong>Value</strong></td>
+                <td style="border: 2px solid">x</td>
+                <td style="border: 2px solid">x</td>
+                <td style="border: 2px solid">x</td>
+                <td style="border: 2px solid">x</td>
+                <td style="border: 2px solid">0</td>
+                <td style="border: 2px solid">0</td>
+                <td style="border: 2px solid">0</td>
+                <td style="border: 2px solid">1</td>
+            </tr>
+        </table>
+
+        <p>
+            The <strong>Connack</strong> packet is sent from a <i>Protocol Gateway</i> to a <i>Protocol Client</i> when it has successfully opened up a TCP connection on behalf of the Client.
+        </p>
+
+        <p>
+            The <i>Protocol Client</i> will wait for this packet after sending a <strong>Connect</strong> packet itself.
+            It will assume its connection attempt to the upstream TCP server was successful when received before a configured timeout.
+        </p>
+
+        <h4>Disconnect</h4>
+
+        <table style="border: 2px solid">
+            <tr>
+                <td><strong>Bit</strong></td>
+                <td style="border: 2px solid">7</td>
+                <td style="border: 2px solid">6</td>
+                <td style="border: 2px solid">5</td>
+                <td style="border: 2px solid">4</td>
+                <td style="border: 2px solid">3</td>
+                <td style="border: 2px solid">2</td>
+                <td style="border: 2px solid">1</td>
+                <td style="border: 2px solid">0</td>
+            </tr>
+            <tr style="border: 2px solid">
+                <td><strong>Value</strong></td>
+                <td style="border: 2px solid">x</td>
+                <td style="border: 2px solid">x</td>
+                <td style="border: 2px solid">x</td>
+                <td style="border: 2px solid">x</td>
+                <td style="border: 2px solid">0</td>
+                <td style="border: 2px solid">0</td>
+                <td style="border: 2px solid">1</td>
+                <td style="border: 2px solid">0</td>
+            </tr>
+        </table>
+
+        <p>
+            The <strong>Disconnect</strong> packet is used to end a connected session between two nodes and is sent when one of the following occurs to one of the nodes:
+        </p>
+
+        <ul>
+            <li>It has timed out a configured number of times while receiving bad packets/junk.</li>
+            <li>An error has occured acquiring user data to send in a <strong>Publish</strong> packet.</li>
+            <li>It has resend a <strong>Publish</strong> packet too many times after waiting for an <strong>Acknowledge</strong> packet.</li>
+        </ul>
+
+        <p>
+            The <i>Protocol Gateway</i> will also send this packet to the <i>Protocol Client</i> when the upstream TCP server connection closes or fails, and vica versa when the Client app wishes to close the connection itself.
+        </p>
+
+        <p>
+            If the <i>Protocol Gateway</i> fails to open a TCP connection on behalf of the <i>Protocol Client</i>, it will send this packet instead of a <strong>Connack</strong>, with the payload set to a string error message.
+        </p>
+
+        <h4>Publish</h4>
+
+        <table style="border: 2px solid">
+            <tr>
+                <td><strong>Bit</strong></td>
+                <td style="border: 2px solid">7</td>
+                <td style="border: 2px solid">6</td>
+                <td style="border: 2px solid">5</td>
+                <td style="border: 2px solid">4</td>
+                <td style="border: 2px solid">3</td>
+                <td style="border: 2px solid">2</td>
+                <td style="border: 2px solid">1</td>
+                <td style="border: 2px solid">0</td>
+            </tr>
+            <tr style="border: 2px solid">
+                <td><strong>Value</strong></td>
+                <td style="border: 2px solid">Seq Flag</td>
+                <td style="border: 2px solid">x</td>
+                <td style="border: 2px solid">x</td>
+                <td style="border: 2px solid">x</td>
+                <td style="border: 2px solid">0</td>
+                <td style="border: 2px solid">0</td>
+                <td style="border: 2px solid">1</td>
+                <td style="border: 2px solid">1</td>
+            </tr>
+        </table>
+
+        <p>
+            The Publish packet can be sent by both the <i>Protocol Gateway</i> and <i>Protocol Client</i>.
+            It is used to forward user data (i.e. the TCP payload) between two protocol nodes on both ends of the serial connection.
+        </p>
+
+        <p>
+            The <i>Sequence Flag</i> at bit 7 is used to uniquely identify a publish message. A protocol node sending a publish packet
+            will set this bit and wait for an <strong>Acknowledge</strong> packet in return from the remote node with its <i>Sequence</i> flag set to the same state.
+        </p>
+
+        <p>
+            A protocol node will send consecutive <strong>Publish</strong> packets with alternating states for the <i>Sequence Flag</i>.
+            It will also keep track of the flag state of received <strong>Publish</strong> packets to know what state to expect for the next packet.
+        </p>
+
+        <p>
+            If an <strong>Acknowledge</strong> has not been received in a configured time, the protocol node will resend the last publish packet and wait again.
+            After a configured number of retries, the node will send a <strong>Disconnect</strong> packet and drop the session.
+        </p>
+
+        <h4>Acknowledge</h4>
+
+        <table style="border: 2px solid">
+            <tr>
+                <td><strong>Bit</strong></td>
+                <td style="border: 2px solid">7</td>
+                <td style="border: 2px solid">6</td>
+                <td style="border: 2px solid">5</td>
+                <td style="border: 2px solid">4</td>
+                <td style="border: 2px solid">3</td>
+                <td style="border: 2px solid">2</td>
+                <td style="border: 2px solid">1</td>
+                <td style="border: 2px solid">0</td>
+            </tr>
+            <tr style="border: 2px solid">
+                <td><strong>Value</strong></td>
+                <td style="border: 2px solid">Seq Flag</td>
+                <td style="border: 2px solid">x</td>
+                <td style="border: 2px solid">x</td>
+                <td style="border: 2px solid">x</td>
+                <td style="border: 2px solid">0</td>
+                <td style="border: 2px solid">1</td>
+                <td style="border: 2px solid">0</td>
+                <td style="border: 2px solid">0</td>
+            </tr>
+        </table>
+
+        <p>
+            A protocol node receiving a <strong>Publish</strong> packet must always send an <strong>Acknowledge</strong> packet back with the same <i>Sequence Flag</i> state.
+            It will use the payload data only if the <strong>Publish</strong> packet's <i>Sequence Flag</i> is the expected one. Otherwise it will discard the data.
+            This enables the receiver node to avoid duplicate data.
+        </p>
+
     </section>
     <footer>
         <p>This project is maintained by <a href="https://github.com/RoanBrand">RoanBrand</a></p>
