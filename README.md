@@ -1,6 +1,9 @@
 # Serial to TCP Bridge Protocol
  An error tolerant serial UART to TCP connection, raw data bridge.
 
+[See Documentation](https://roanbrand.github.io/SerialToTCPBridgeProtocol/)  
+
+#### Description
 Host side gateway service written in Go that listens on COM ports for serial clients.  
 This is meant to bridge the gap between tcp connections and serial devices using UART/RS-232/Virtual COM over USB, etc.  
 Clients implementing the protocol client have a tcp like api that they can use to make connections to real servers.  
