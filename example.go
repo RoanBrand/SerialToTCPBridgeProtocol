@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"sync"
-	"time"
 )
 
 func main() {
@@ -23,11 +22,7 @@ func main() {
 		w.Add(1)
 		go func(v gatewayConfig) {
 			com := protocol.NewComGateway(v.COMPortName, v.COMBaudRate)
-			for {
-				err := com.ServeCOM()
-				log.Printf("%v: Error: %v\nRetrying in 5s...\n", v.COMPortName, err)
-				time.Sleep(time.Second * 5)
-			}
+			com.ServeCOM()
 			w.Done()
 		}(v)
 	}

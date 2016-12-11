@@ -53,7 +53,7 @@ func (t *protocolTransport) rxSerial(onReadFail func()) {
 		/*
 			// For debugging
 			logLock.Lock()
-			log.Println("Gateway RX:")
+			log.Println("serial RX:")
 			log.Println(rx[:nRx])
 			log.Println(string(rx[:nRx]))
 			logLock.Unlock()
@@ -83,7 +83,7 @@ func (t *protocolTransport) txSerial(onWriteFail func()) {
 		/*
 			// For debugging
 			logLock.Lock()
-			log.Println("Gateway TX:")
+			log.Println("serial TX:")
 			log.Println(serialPacket)
 			log.Println(string(serialPacket[2:]))
 			logLock.Unlock()
