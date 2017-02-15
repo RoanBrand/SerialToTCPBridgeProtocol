@@ -28,10 +28,9 @@ func TestEcho(t *testing.T) {
 	t.Log("Protocol Gateway started")
 
 	// start protocol client
-	endClient := client{}
-	endClient.com = &fakeTransportClientInterface{serialTransport}
-	if res := endClient.Connect(&[4]byte{127, 0, 0, 1}, PORT); res != 1 {
-		t.Fatalf("Protocol client unable to connect to gateway: %d", res)
+	endClient, err := Dial(&fakeTransportClientInterface{serialTransport}, "127.0.0.1:"+strconv.Itoa(PORT))
+	if err != nil {
+		t.Fatalf("Protocol client unable to connect to gateway: %v", err)
 	}
 	t.Log("Protocol Client connected to Gateway")
 
@@ -43,7 +42,10 @@ func TestEcho(t *testing.T) {
 	messageLength := len(message)
 
 	for i := 1; i <= 5; i++ {
-		nWritten := endClient.Write(message, messageLength)
+		nWritten, err := endClient.Write(message)
+		if err != nil {
+			t.Fatalf("Client write fail: %v\n", err)
+		}
 		if nWritten != messageLength {
 			t.Fatalf("Client write fail: Expected to send %v but sent %v instead\n", messageLength, nWritten)
 		}
@@ -57,12 +59,15 @@ func TestEcho(t *testing.T) {
 					t.Fatalf("Client timed out waiting for correct response. Received so far:\n%s\n%v", string(in), in)
 				}
 			}
-			inByte := endClient.Read()
-			if inByte == -1 {
-				// -1 if nothing to read
+			inByte := make([]byte, 1)
+			nRx, err := endClient.Read(inByte)
+			if err != nil {
+				t.Fatalf("Client read fail: %v\n", err)
+			}
+			if nRx == 0 {
 				continue
 			}
-			in = append(in, byte(inByte))
+			in = append(in, inByte...)
 			if bytes.Equal(in, message) {
 				break
 			}

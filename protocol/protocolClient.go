@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"log"
+	"net"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -16,54 +18,104 @@ type client struct {
 	txBuffer          chan Packet
 }
 
-// Public Protocol Client API
-// Meant to match Arduino client API for now. Not Go idiomatic.
-func (c *client) Connect(IP *[4]byte, port uint16) int {
-	if c.com == nil {
-		return 0
+// Dial connection to server.
+func Dial(com serialInterface, address string) (net.Conn, error) {
+	if com == nil {
+		return nil, errors.New("No serial com interface provided")
 	}
 
+	c := client{}
+	c.com = com
 	c.rxBuff = make(chan byte, 512)
 	c.acknowledgeEvent = make(chan bool)
 	c.state = Disconnected
-
 	c.txBuff = make(chan Packet, 2)
 	c.expectedRxSeqFlag = false
-
 	c.txBuffer = make(chan Packet, 10)
 
 	c.session.Add(3)
 	go c.rxSerial(nil)
 	go c.packetParser(c.handleRxPacket, c.Stop)
 	go c.txSerial(nil)
-	//c.session.Wait()
 
-	p := IP[:]
-	p = append(p, byte(port&0x00FF), byte((port>>8)&0x00FF))
-	c.txBuff <- Packet{command: connect, payload: p}
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, errors.New("Invalid address (" + err.Error() + "). Must be: IP|Host:Port")
+	}
 
+	var cmd byte = connect
+	var connPayload []byte
+	ip := net.ParseIP(host)
+	if ip == nil {
+		// Hostname string
+		cmd |= 0x80
+		connPayload = []byte(host)
+	} else {
+		// IPv4
+		connPayload = ip.To4()
+	}
+	portNum, _ := strconv.Atoi(port)
+	connPayload = append(connPayload, byte(portNum&0x00FF), byte((portNum>>8)&0x00FF))
+
+	c.txBuff <- Packet{command: cmd, payload: connPayload}
 	select {
 	case reply, ok := <-c.acknowledgeEvent:
 		if ok && reply {
-			return 1
+			return &c, nil
 		}
 	case <-time.After(time.Second * 5):
-		c.Stop()
-		return -1
 	}
 
-	return -4
-	/*
-	 * SUCCESS 1
-	 * TIMED_OUT -1
-	 * INVALID_SERVER -2
-	 * TRUNCATED -3
-	 * INVALID_RESPONSE -4
-	 */
+	return nil, errors.New("Timed out while dialing server")
 }
 
-func (c *client) Connected() bool {
-	return c.state == Connected
+func (c *client) Read(b []byte) (n int, err error) {
+	if c.Available() == 0 {
+		return 0, nil
+	}
+	c.rxBufLock.Lock()
+	rByte, err := c.rxBuffer.ReadByte()
+	c.rxBufLock.Unlock()
+	if err != nil {
+		return 0, err
+	}
+	b[0] = rByte
+	return 1, nil
+}
+
+func (c *client) Write(b []byte) (n int, err error) {
+	if c.state != Connected {
+		return 0, errors.New("Not connected")
+	}
+
+	c.txBuffer <- Packet{command: publish, payload: b}
+	return len(b), nil
+}
+
+func (c *client) Close() error {
+	c.Stop()
+	return nil
+}
+
+// To satisfy net.Conn interface
+func (c *client) LocalAddr() net.Addr {
+	return nil
+}
+
+func (c *client) RemoteAddr() net.Addr {
+	return nil
+}
+
+func (c *client) SetDeadline(t time.Time) error {
+	return nil
+}
+
+func (c *client) SetReadDeadline(t time.Time) error {
+	return nil
+}
+
+func (c *client) SetWriteDeadline(t time.Time) error {
+	return nil
 }
 
 func (c *client) Available() int {
@@ -72,30 +124,8 @@ func (c *client) Available() int {
 	return c.rxBuffer.Len()
 }
 
-func (c *client) Read() int {
-	if c.Available() == 0 {
-		return -1
-	}
-	c.rxBufLock.Lock()
-	b, err := c.rxBuffer.ReadByte()
-	c.rxBufLock.Unlock()
-	if err != nil {
-		c.Stop()
-	}
-	return int(b)
-}
-
-func (c *client) Write(payload []byte, pLength int) int {
-	if c.state != Connected {
-		return 0
-	}
-
-	c.txBuffer <- Packet{command: publish, payload: payload[:pLength]}
-	return pLength
-}
-
-func (c *client) Flush() {
-	c.rxBuffer.Reset()
+func (c *client) Connected() bool {
+	return c.state == Connected
 }
 
 func (c *client) Stop() {

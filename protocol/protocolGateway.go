@@ -1,8 +1,10 @@
 package protocol
 
 import (
+	"encoding/binary"
 	"log"
 	"net"
+	"strconv"
 )
 
 // Implementation of the Protocol Gateway.
@@ -26,11 +28,11 @@ func (g *gateway) Listen(ds serialInterface) {
 
 // Packet RX done. Handle it.
 func (g *gateway) handleRxPacket(packet *Packet) {
-	var rxSeqFlag bool = (packet.command & 0x80) > 0
-	switch packet.command & 0x7F {
+	switch packet.command & 0x0F {
 	case publish:
 		// Payload from serial client
 		if g.state == Connected {
+			var rxSeqFlag bool = (packet.command & 0x80) > 0
 			g.txBuff <- Packet{command: acknowledge | (packet.command & 0x80)}
 			if rxSeqFlag == g.expectedRxSeqFlag {
 				g.expectedRxSeqFlag = !g.expectedRxSeqFlag
@@ -44,17 +46,16 @@ func (g *gateway) handleRxPacket(packet *Packet) {
 		}
 	case acknowledge:
 		if g.state == Connected {
+			var rxSeqFlag bool = (packet.command & 0x80) > 0
 			g.acknowledgeEvent <- rxSeqFlag
 		}
 	case connect:
 		if g.state != Disconnected {
 			return
 		}
-		if len(packet.payload) != 6 {
-			return
-		}
 
-		dstStr := makeTCPConnString(packet.payload)
+		var dstType bool = (packet.command & 0x80) > 0
+		dstStr := makeTCPConnString(packet.payload, dstType)
 
 		g.txBuff = make(chan Packet, 2)
 		g.expectedRxSeqFlag = false
@@ -116,4 +117,22 @@ func (g *gateway) dropGateway() {
 	g.com.Close()
 	close(g.rxBuff)
 	g.state = TransportNotReady
+}
+
+// Generate tcp connection string used to dial tcp server from Protocol Client's connect packet payload.
+func makeTCPConnString(connPayload []byte, isHostname bool) string {
+	port := binary.LittleEndian.Uint16(connPayload[len(connPayload)-2:])
+	connString := ""
+
+	if isHostname {
+		connString = string(connPayload[:len(connPayload)-2])
+	} else {
+		for i := 0; i < 3; i++ {
+			connString += strconv.Itoa(int(connPayload[i])) + "."
+		}
+		connString += strconv.Itoa(int(connPayload[3]))
+	}
+	connString += ":" + strconv.Itoa(int(port))
+
+	return connString
 }

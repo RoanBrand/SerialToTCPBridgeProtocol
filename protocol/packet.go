@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"hash/crc32"
 	"log"
-	"strconv"
 	"time"
 )
 
@@ -164,15 +163,4 @@ func (t *protocolTransport) packetSender(getData func() (Packet, error), onError
 			}
 		}
 	}
-}
-
-// Generate tcp connection string used to dial tcp server from Protocol Client's connect packet payload.
-func makeTCPConnString(connPayload []byte) string {
-	port := binary.LittleEndian.Uint16(connPayload[4:])
-	connString := ""
-	for i := 0; i < 3; i++ {
-		connString += strconv.Itoa(int(connPayload[i])) + "."
-	}
-	connString += strconv.Itoa(int(connPayload[3])) + ":" + strconv.Itoa(int(port))
-	return connString
 }
