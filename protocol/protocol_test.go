@@ -1,7 +1,8 @@
-package protocol
+package protocol_test
 
 import (
 	"bytes"
+	"github.com/RoanBrand/SerialToTCPBridgeProtocol/protocol"
 	"github.com/RoanBrand/goBuffers"
 	"io"
 	"net"
@@ -23,12 +24,12 @@ func TestEcho(t *testing.T) {
 
 	// start protocol gateway server
 	serialTransport := NewFakeTransport()
-	gateway := gateway{}
+	gateway := protocol.Gateway{}
 	go gateway.Listen(&fakeTransportServerInterface{serialTransport})
 	t.Log("Protocol Gateway started")
 
 	// start protocol client
-	endClient, err := Dial(&fakeTransportClientInterface{serialTransport}, "127.0.0.1:"+strconv.Itoa(PORT))
+	endClient, err := protocol.Dial(&fakeTransportClientInterface{serialTransport}, "127.0.0.1:"+strconv.Itoa(PORT))
 	if err != nil {
 		t.Fatalf("Protocol client unable to connect to gateway: %v", err)
 	}

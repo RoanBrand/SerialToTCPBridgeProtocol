@@ -2,7 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"github.com/RoanBrand/SerialToTCPBridgeProtocol/protocol"
+	"github.com/RoanBrand/SerialToTCPBridgeProtocol/comwrapper"
 	"log"
 	"os"
 	"sync"
@@ -21,14 +21,15 @@ func main() {
 	for _, v := range c.Gateways {
 		w.Add(1)
 		go func(v gatewayConfig) {
-			com := protocol.NewComGateway(v.COMPortName, v.COMBaudRate)
-			com.ServeCOM()
+			com := comwrapper.NewComPortGateway(v.COMPortName, v.COMBaudRate)
+			com.ListenAndServe()
 			w.Done()
 		}(v)
 	}
 	w.Wait()
 }
 
+// Configuration by json file.
 type gatewayConfig struct {
 	GatewayName string `json:"gateway name"`
 	COMPortName string `json:"comport name"`

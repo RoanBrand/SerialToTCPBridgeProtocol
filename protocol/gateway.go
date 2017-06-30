@@ -8,13 +8,13 @@ import (
 )
 
 // Implementation of the Protocol Gateway.
-type gateway struct {
+type Gateway struct {
 	protocolTransport          // Connection between Protocol Gateway & Client.
 	uStream           net.Conn // Upstream connection to tcp Server.
 }
 
 // Initialize downstream RX and listen for a protocol Client.
-func (g *gateway) Listen(ds serialInterface) {
+func (g *Gateway) Listen(ds serialInterface) {
 	g.com = ds
 	g.rxBuff = make(chan byte, 512)
 	g.acknowledgeEvent = make(chan bool)
@@ -27,7 +27,7 @@ func (g *gateway) Listen(ds serialInterface) {
 }
 
 // Packet RX done. Handle it.
-func (g *gateway) handleRxPacket(packet *Packet) {
+func (g *Gateway) handleRxPacket(packet *Packet) {
 	switch packet.command & 0x0F {
 	case publish:
 		// Payload from serial client
@@ -100,7 +100,7 @@ func (g *gateway) handleRxPacket(packet *Packet) {
 }
 
 // End link session between upstream server and downstream client.
-func (g *gateway) dropLink() {
+func (g *Gateway) dropLink() {
 	if g.uStream != nil {
 		g.uStream.Close()
 	}
@@ -112,7 +112,7 @@ func (g *gateway) dropLink() {
 }
 
 // Stop activity and release downstream interface.
-func (g *gateway) dropGateway() {
+func (g *Gateway) dropGateway() {
 	g.dropLink()
 	g.com.Close()
 	close(g.rxBuff)
