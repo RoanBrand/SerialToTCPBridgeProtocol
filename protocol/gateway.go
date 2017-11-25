@@ -76,7 +76,7 @@ func (g *Gateway) handleRxPacket(packet *Packet) {
 
 		// Start link session
 		g.session.Add(1)
-		tx := make([]byte, 512)
+		tx := make([]byte, 250) // must be 250 for packet size of 256
 		go g.packetSender(func() (p Packet, err error) {
 			// Publish data downstream received from upstream tcp server.
 			n, err := g.uStream.Read(tx)
