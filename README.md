@@ -22,12 +22,15 @@ The following clients are also available:
 | [ArduinoSerialToTCPBridgeClient](https://github.com/RoanBrand/ArduinoSerialToTCPBridgeClient)  | Arduino  | C++      |
 | [STM32SerialToTCPBridgeClient](https://github.com/RoanBrand/STM32SerialToTCPBridgeClient)      | STM32    | C        |
 
-#### Build and Run
+#### Get and Run
+- Check the releases page for the latest built binaries.
+- Get and configure `config.json`. The serial port in Linux for the Arduino Uno is something like `/dev/ttyACM0`.
+
+#### Development and Building
 - Install [Go](https://go.dev/dl/) for your system.
-- Run `go install github.com/RoanBrand/SerialToTCPBridgeProtocol@latest` in a terminal.
-- Copy *config.json* from the repository and the installed executable `~/go/bin/SerialToTCPBridgeProtocol` to a new folder.
+- Clone this repository.
 - Edit your local `config.json` and set it according to your Serial port configuration.
-- Run the `SerialToTCPBridgeProtocol` executable.
+- Debug `example.go` in your IDE, or run `go run example.go` or `go build` for a binary.
 
 #### Details
 - The protocol provides the app an in order, duplicates free and error checked byte stream by adding a CRC32 and simple retry mechanism. See [this](https://en.wikibooks.org/wiki/Serial_Programming/Error_Correction_Methods) for background.
