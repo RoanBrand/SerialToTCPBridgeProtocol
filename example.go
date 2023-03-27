@@ -2,10 +2,12 @@ package main
 
 import (
 	"encoding/json"
-	"github.com/RoanBrand/SerialToTCPBridgeProtocol/comwrapper"
 	"log"
 	"os"
+	"path"
 	"sync"
+
+	"github.com/RoanBrand/SerialToTCPBridgeProtocol/comwrapper"
 )
 
 func main() {
@@ -41,15 +43,35 @@ type config struct {
 }
 
 func loadConfig() (*config, error) {
-	file, err := os.Open("config.json")
+	filePath := "config.json"
+
+	// if file not found in current WD, try executable's folder
+	if !fileExists(filePath) {
+		exePath, err := os.Executable()
+		if err != nil {
+			return nil, err
+		}
+		filePath = path.Join(path.Dir(exePath), filePath)
+	}
+
+	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, err
 	}
-	decoder := json.NewDecoder(file)
+
 	configuration := config{}
-	err = decoder.Decode(&configuration)
+	err = json.NewDecoder(file).Decode(&configuration)
 	if err != nil {
 		return nil, err
 	}
 	return &configuration, nil
+}
+
+// fileExists checks if a file exists and is not a directory before we try using it to prevent further errors.
+func fileExists(filePath string) bool {
+	info, err := os.Stat(filePath)
+	if os.IsNotExist(err) {
+		return false
+	}
+	return !info.IsDir()
 }
